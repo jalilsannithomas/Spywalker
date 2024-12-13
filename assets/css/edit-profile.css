@@ -1,0 +1,170 @@
+/* Import pixel art font */
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+/* Main container styles */
+.container {
+    padding: 2rem;
+    color: #D4AF37;
+}
+
+/* Title styles */
+.vintage-title {
+    font-family: 'Press Start 2P', cursive;
+    color: #D4AF37;
+    text-transform: uppercase;
+    text-shadow: 2px 2px 0px #000;
+    margin-bottom: 2rem;
+}
+
+.vintage-subtitle {
+    font-family: 'Press Start 2P', cursive;
+    color: #D4AF37;
+    font-size: 1rem;
+    margin: 1.5rem 0;
+    text-shadow: 1px 1px 0px #000;
+}
+
+/* Form styles */
+.edit-form {
+    background: rgba(44, 24, 16, 0.95);
+    border: 4px solid #D4AF37;
+    padding: 2rem;
+    position: relative;
+    image-rendering: pixelated;
+}
+
+.edit-form::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: -8px;
+    right: -8px;
+    bottom: -8px;
+    border: 2px solid #D4AF37;
+    pointer-events: none;
+    z-index: -1;
+}
+
+/* Profile image container */
+.profile-upload-container {
+    border: 4px solid #D4AF37;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    text-align: center;
+    image-rendering: pixelated;
+}
+
+#profilePreview {
+    max-width: 100%;
+    height: auto;
+    margin-bottom: 1rem;
+    border: 2px solid #D4AF37;
+}
+
+/* Form controls */
+.form-control {
+    background-color: #1a1a1a;
+    border: 2px solid #D4AF37;
+    color: #D4AF37;
+    padding: 0.5rem;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.8rem;
+    margin-bottom: 1rem;
+}
+
+.form-control:focus {
+    background-color: #2a2a2a;
+    border-color: #FFD700;
+    box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.25);
+    color: #D4AF37;
+}
+
+.form-label {
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.8rem;
+    color: #D4AF37;
+    margin-bottom: 0.5rem;
+}
+
+/* Button styles */
+.btn-primary {
+    background-color: #000080;
+    border: 2px solid #D4AF37;
+    color: #D4AF37;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.8rem;
+    padding: 0.5rem 1rem;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    image-rendering: pixelated;
+}
+
+.btn-primary:hover {
+    background-color: #D4AF37;
+    color: #000080;
+    transform: translateY(-2px);
+    box-shadow: 0 2px 0 #000;
+}
+
+/* Alert styles */
+.alert {
+    border: 2px solid;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.8rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    image-rendering: pixelated;
+}
+
+.alert-danger {
+    background-color: #8B0000;
+    border-color: #FF0000;
+    color: #FFF;
+}
+
+.alert-success {
+    background-color: #006400;
+    border-color: #00FF00;
+    color: #FFF;
+}
+
+/* File input custom styling */
+.custom-file-upload {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    background-color: #000080;
+    border: 2px solid #D4AF37;
+    color: #D4AF37;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    margin-top: 1rem;
+    transition: all 0.3s ease;
+}
+
+.custom-file-upload:hover {
+    background-color: #D4AF37;
+    color: #000080;
+    transform: translateY(-2px);
+    box-shadow: 0 2px 0 #000;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .container {
+        padding: 1rem;
+    }
+    
+    .vintage-title {
+        font-size: 1.2rem;
+    }
+    
+    .vintage-subtitle {
+        font-size: 0.8rem;
+    }
+    
+    .form-control, .btn-primary {
+        font-size: 0.7rem;
+    }
+}

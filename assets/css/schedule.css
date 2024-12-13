@@ -1,0 +1,224 @@
+/* Import pixel art font */
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+body {
+    font-family: 'Press Start 2P', cursive;
+    background-color: #2C1810;
+    color: #D4AF37;
+}
+
+.schedule-container {
+    max-width: 1200px;
+    margin: 2rem auto;
+    padding: 2rem;
+    background: rgba(44, 24, 16, 0.95);
+    border: 4px solid #D4AF37;
+    position: relative;
+    image-rendering: pixelated;
+}
+
+.schedule-container::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: -8px;
+    right: -8px;
+    bottom: -8px;
+    border: 2px solid #D4AF37;
+    pointer-events: none;
+    z-index: -1;
+}
+
+.schedule-header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.schedule-title {
+    font-size: 2rem;
+    color: #D4AF37;
+    text-shadow: 3px 3px 0px #000;
+    margin-bottom: 1rem;
+    text-transform: uppercase;
+}
+
+.month-navigation {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 1rem 0 2rem;
+}
+
+.nav-button {
+    background-color: #000080;
+    border: 2px solid #D4AF37;
+    color: #D4AF37;
+    padding: 0.5rem 1rem;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.nav-button:hover {
+    background-color: #D4AF37;
+    color: #000080;
+    transform: translateY(-2px);
+}
+
+.current-month {
+    font-size: 1.2rem;
+    color: #FFD700;
+    text-shadow: 2px 2px 0px #000;
+}
+
+/* Calendar Grid */
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+    margin-top: 1rem;
+}
+
+.calendar-header {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.day-header {
+    background: #D4AF37;
+    color: #2C1810;
+    padding: 0.5rem;
+    text-align: center;
+    font-size: 0.8rem;
+    border: 2px solid #2C1810;
+}
+
+.calendar-day {
+    background: rgba(0, 0, 0, 0.3);
+    border: 2px solid #D4AF37;
+    min-height: 100px;
+    padding: 0.5rem;
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+.calendar-day:hover {
+    background: rgba(0, 0, 0, 0.5);
+    transform: translateY(-2px);
+}
+
+.day-number {
+    font-size: 0.8rem;
+    color: #D4AF37;
+    margin-bottom: 0.5rem;
+}
+
+.event {
+    background: #000080;
+    border: 1px solid #D4AF37;
+    color: #D4AF37;
+    padding: 0.3rem;
+    margin-bottom: 0.3rem;
+    font-size: 0.6rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.event:hover {
+    background: #D4AF37;
+    color: #000080;
+    transform: scale(1.05);
+}
+
+.event-time {
+    font-size: 0.5rem;
+    color: #FFD700;
+}
+
+.event-title {
+    margin-top: 0.2rem;
+}
+
+.today {
+    background: rgba(212, 175, 55, 0.1);
+    border: 2px solid #FFD700;
+}
+
+.other-month {
+    opacity: 0.5;
+}
+
+/* Event Modal */
+.event-modal {
+    background: #2C1810;
+    border: 4px solid #D4AF37;
+    padding: 1rem;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1000;
+    min-width: 300px;
+}
+
+.modal-header {
+    border-bottom: 2px solid #D4AF37;
+    padding-bottom: 1rem;
+    margin-bottom: 1rem;
+}
+
+.modal-title {
+    font-size: 1rem;
+    color: #FFD700;
+}
+
+.modal-body {
+    margin-bottom: 1rem;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .schedule-container {
+        padding: 1rem;
+        margin: 1rem;
+    }
+
+    .calendar-day {
+        min-height: 80px;
+        padding: 0.3rem;
+    }
+
+    .event {
+        font-size: 0.5rem;
+        padding: 0.2rem;
+    }
+
+    .day-header {
+        font-size: 0.6rem;
+        padding: 0.3rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .schedule-title {
+        font-size: 1.5rem;
+    }
+
+    .current-month {
+        font-size: 1rem;
+    }
+
+    .nav-button {
+        font-size: 0.6rem;
+        padding: 0.3rem 0.6rem;
+    }
+}

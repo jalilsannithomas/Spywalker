@@ -1,0 +1,172 @@
+:root {
+    --vintage-cream: #f4e4bc;
+    --vintage-brown: #8b4513;
+    --vintage-red: #8b0000;
+    --vintage-gold: #d4af37;
+    --vintage-navy: #000080;
+    --card-bg: #f9f3e3;
+    --text-color: #2c1810;
+}
+
+body {
+    background-color: var(--vintage-brown);
+    background-image: url('data:image/svg+xml,%3Csvg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"%3E%3Cg fill="%239C92AC" fill-opacity="0.05"%3E%3Cpath d="M0 0h20L0 20z"/%3E%3Cpath d="M20 0v20H0z"/%3E%3C/g%3E%3C/svg%3E');
+    font-family: 'Inter', sans-serif;
+    color: var(--text-color);
+}
+
+.vintage-card {
+    background-color: var(--card-bg);
+    border: none;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    position: relative;
+    overflow: hidden;
+}
+
+.vintage-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--vintage-red), var(--vintage-gold), var(--vintage-navy));
+}
+
+.card-header {
+    background-color: transparent;
+    border-bottom: 2px solid var(--vintage-brown);
+    padding: 1.5rem 1rem;
+}
+
+.vintage-title {
+    font-family: 'Graduate', serif;
+    color: var(--vintage-navy);
+    font-size: 2.5rem;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 0.5rem;
+    text-shadow: 2px 2px 0 var(--vintage-gold);
+}
+
+.vintage-subtitle {
+    font-family: 'Graduate', serif;
+    color: var(--vintage-red);
+    font-size: 1.2rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.form-control, .form-select {
+    background-color: var(--vintage-cream) !important;
+    border: 1px solid var(--vintage-brown);
+    color: var(--text-color) !important;
+    border-radius: 4px;
+}
+
+select.form-select {
+    -webkit-appearance: menulist !important;
+    -moz-appearance: menulist !important;
+    appearance: menulist !important;
+    background-color: var(--vintage-cream) !important;
+    color: var(--text-color) !important;
+    border: 1px solid var(--vintage-brown) !important;
+    border-radius: 4px !important;
+    padding: 0.375rem 1.75rem 0.375rem 0.75rem !important;
+    cursor: pointer !important;
+}
+
+select.form-select:hover {
+    border-color: var(--vintage-gold) !important;
+}
+
+select.form-select:focus {
+    border-color: var(--vintage-gold) !important;
+    box-shadow: 0 0 0 0.25rem rgba(139, 69, 19, 0.25) !important;
+    outline: none !important;
+}
+
+select.form-select option {
+    background-color: var(--vintage-cream) !important;
+    color: var(--text-color) !important;
+    padding: 0.5rem !important;
+}
+
+.form-control:focus, .form-select:focus {
+    background-color: #ffffff;
+    border-color: var(--vintage-gold);
+    box-shadow: 0 0 0 0.25rem rgba(139, 69, 19, 0.25);
+}
+
+.form-label {
+    color: var(--vintage-brown);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.9rem;
+    letter-spacing: 0.5px;
+}
+
+.vintage-button {
+    background-color: var(--vintage-navy);
+    border: 2px solid var(--vintage-gold);
+    color: var(--vintage-cream);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-family: 'Graduate', serif;
+    padding: 0.75rem 1.5rem;
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+.vintage-button:hover {
+    background-color: var(--vintage-red);
+    border-color: var(--vintage-gold);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.vintage-text {
+    color: var(--vintage-brown);
+    font-size: 0.9rem;
+}
+
+.vintage-link {
+    color: var(--vintage-navy);
+    text-decoration: none;
+    font-weight: 600;
+    border-bottom: 2px solid var(--vintage-gold);
+    transition: all 0.3s ease;
+}
+
+.vintage-link:hover {
+    color: var(--vintage-red);
+    border-bottom-color: var(--vintage-red);
+}
+
+.alert {
+    background-color: var(--vintage-cream);
+    border: 1px solid var(--vintage-brown);
+    color: var(--vintage-red);
+}
+
+/* Add some texture to the card */
+.card-body {
+    background-image: url('data:image/svg+xml,%3Csvg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"%3E%3Cg fill="%23000000" fill-opacity="0.02"%3E%3Cpath d="M0 0h40v40H0V0zm20 20v20H0V20h20zm20 0v20H20V20h20z"/%3E%3C/g%3E%3C/svg%3E');
+    padding: 2rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .vintage-title {
+        font-size: 2rem;
+    }
+    
+    .vintage-subtitle {
+        font-size: 1rem;
+    }
+    
+    .card-body {
+        padding: 1rem;
+    }
+}

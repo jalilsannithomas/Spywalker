@@ -1,0 +1,229 @@
+/* Import pixel art font */
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+/* Main container styles */
+.container {
+    padding: 2rem;
+    color: #D4AF37;
+}
+
+/* Title styles */
+.vintage-title {
+    font-family: 'Press Start 2P', cursive;
+    color: #D4AF37;
+    text-transform: uppercase;
+    text-shadow: 2px 2px 0px #000;
+    margin-bottom: 2rem;
+    font-size: 1.5rem;
+    text-align: center;
+}
+
+.section-title {
+    font-family: 'Press Start 2P', cursive;
+    color: #D4AF37;
+    font-size: 1rem;
+    margin: 1.5rem 0;
+    text-shadow: 1px 1px 0px #000;
+    text-transform: uppercase;
+}
+
+/* Roster sections */
+.roster-section {
+    background: rgba(44, 24, 16, 0.95);
+    border: 4px solid #D4AF37;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    position: relative;
+    image-rendering: pixelated;
+}
+
+.roster-section::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: -8px;
+    right: -8px;
+    bottom: -8px;
+    border: 2px solid #D4AF37;
+    pointer-events: none;
+    z-index: -1;
+}
+
+/* Athlete card styles */
+.athlete-card {
+    border: 2px solid #D4AF37;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    background: rgba(0, 0, 0, 0.3);
+    position: relative;
+}
+
+.athlete-card::after {
+    content: 'ATHLETE CARD';
+    position: absolute;
+    top: -0.5rem;
+    right: 0.5rem;
+    background: #D4AF37;
+    color: #2C1810;
+    padding: 0.25rem 0.5rem;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.6rem;
+}
+
+/* Avatar circle */
+.avatar-circle {
+    width: 80px;
+    height: 80px;
+    background: #D4AF37;
+    border: 2px solid #D4AF37;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 1rem;
+}
+
+.avatar-circle span {
+    font-family: 'Press Start 2P', cursive;
+    color: #2C1810;
+    font-size: 2rem;
+}
+
+/* Stats display */
+.stats-display {
+    display: flex;
+    justify-content: space-around;
+    margin: 1rem 0;
+    padding: 0.5rem;
+    border: 2px solid #D4AF37;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.stat-item {
+    text-align: center;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.7rem;
+}
+
+.stat-value {
+    color: #FFD700;
+    font-size: 1rem;
+}
+
+/* Form controls */
+.form-control, .form-select {
+    background-color: #1a1a1a;
+    border: 2px solid #D4AF37;
+    color: #D4AF37;
+    padding: 0.5rem;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.7rem;
+    margin-bottom: 1rem;
+}
+
+.form-control:focus, .form-select:focus {
+    background-color: #2a2a2a;
+    border-color: #FFD700;
+    box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.25);
+    color: #D4AF37;
+}
+
+/* Button styles */
+.btn {
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.7rem;
+    padding: 0.5rem 1rem;
+    border: 2px solid #D4AF37;
+    background: #000080;
+    color: #D4AF37;
+    text-transform: uppercase;
+    transition: all 0.3s ease;
+    margin: 0.5rem 0;
+    image-rendering: pixelated;
+}
+
+.btn:hover {
+    background: #D4AF37;
+    color: #000080;
+    transform: translateY(-2px);
+    box-shadow: 0 2px 0 #000;
+}
+
+.btn-remove {
+    background: #8B0000;
+}
+
+.btn-remove:hover {
+    background: #FF0000;
+    color: #FFF;
+}
+
+/* Alert styles */
+.alert {
+    border: 2px solid;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.7rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    image-rendering: pixelated;
+}
+
+.alert-vintage {
+    background-color: #2C1810;
+    border-color: #D4AF37;
+    color: #D4AF37;
+}
+
+/* Team selector */
+.team-select {
+    width: 100%;
+    margin-bottom: 2rem;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.7rem;
+    padding: 0.5rem;
+    background: #1a1a1a;
+    border: 2px solid #D4AF37;
+    color: #D4AF37;
+}
+
+/* Player info */
+.player-info {
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.7rem;
+    margin: 0.5rem 0;
+    color: #D4AF37;
+}
+
+.player-name {
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+    text-align: center;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .container {
+        padding: 1rem;
+    }
+    
+    .vintage-title {
+        font-size: 1rem;
+    }
+    
+    .section-title {
+        font-size: 0.8rem;
+    }
+    
+    .avatar-circle {
+        width: 60px;
+        height: 60px;
+    }
+    
+    .avatar-circle span {
+        font-size: 1.5rem;
+    }
+    
+    .stat-item {
+        font-size: 0.6rem;
+    }
+}

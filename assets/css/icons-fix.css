@@ -1,0 +1,21 @@
+@font-face {
+  font-display: swap;
+  font-family: "bootstrap-icons";
+  src: url("../fonts/bootstrap-icons.woff2") format("woff2");
+}
+
+/* Message notification dot */
+.notification-dot {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    width: 10px;
+    height: 10px;
+    background-color: #ff4444;
+    border-radius: 50%;
+    display: none;
+}
+
+.has-unread .notification-dot {
+    display: block;
+}

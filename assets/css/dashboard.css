@@ -1,0 +1,384 @@
+/* Import pixel art font */
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+body {
+    background-color: #2C1810;
+    color: #D4AF37;
+    font-family: 'Press Start 2P', cursive;
+    line-height: 1.6;
+}
+
+.main-content {
+    padding: 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.content-wrapper {
+    background: rgba(0, 0, 0, 0.3);
+    border: 4px solid #D4AF37;
+    padding: 2rem;
+    position: relative;
+    image-rendering: pixelated;
+}
+
+.content-wrapper::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: -8px;
+    right: -8px;
+    bottom: -8px;
+    border: 2px solid #D4AF37;
+    pointer-events: none;
+    z-index: -1;
+}
+
+/* Dashboard Sections */
+.dashboard-section {
+    background: rgba(44, 24, 16, 0.95);
+    border: 4px solid #D4AF37;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    position: relative;
+    min-height: 300px;
+}
+
+.dashboard-section::before {
+    content: '';
+    position: absolute;
+    top: -4px;
+    left: -4px;
+    right: -4px;
+    bottom: -4px;
+    border: 2px solid #D4AF37;
+    pointer-events: none;
+    z-index: -1;
+}
+
+.section-title {
+    font-size: 1.2rem;
+    color: #D4AF37;
+    margin-bottom: 1.5rem;
+    text-transform: uppercase;
+    text-shadow: 2px 2px 0px #000;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.section-title i {
+    font-size: 1.4rem;
+}
+
+/* Stats Grid */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.stat-card {
+    background: rgba(0, 0, 0, 0.3);
+    border: 2px solid #D4AF37;
+    padding: 1rem;
+    text-align: center;
+    transition: transform 0.3s ease;
+}
+
+.stat-card:hover {
+    transform: translateY(-4px);
+}
+
+.stat-value {
+    font-size: 2rem;
+    color: #FFD700;
+    margin: 0.5rem 0;
+    text-shadow: 2px 2px 0px #000;
+}
+
+.stat-label {
+    font-size: 0.7rem;
+    color: #D4AF37;
+    text-transform: uppercase;
+}
+
+/* Team List */
+.team-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.team-item {
+    background: rgba(0, 0, 0, 0.3);
+    border: 2px solid #D4AF37;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.team-name {
+    font-size: 0.9rem;
+    color: #FFD700;
+}
+
+/* Game Schedule */
+.game-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.game-item {
+    background: rgba(0, 0, 0, 0.3);
+    border: 2px solid #D4AF37;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.game-date {
+    font-size: 0.7rem;
+    color: #D4AF37;
+    margin-bottom: 0.5rem;
+}
+
+.game-teams {
+    font-size: 0.9rem;
+    color: #FFD700;
+    margin-bottom: 0.5rem;
+}
+
+.game-venue {
+    font-size: 0.7rem;
+    color: #D4AF37;
+}
+
+/* Action Buttons */
+.action-btn {
+    background-color: #000080;
+    border: 2px solid #D4AF37;
+    color: #D4AF37;
+    padding: 0.5rem 1rem;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.action-btn:hover {
+    background-color: #D4AF37;
+    color: #000080;
+    transform: translateY(-2px);
+}
+
+/* Quick Actions */
+.quick-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.quick-action-btn {
+    background: rgba(0, 0, 0, 0.3);
+    border: 2px solid #D4AF37;
+    padding: 1rem;
+    text-align: center;
+    color: #D4AF37;
+    text-decoration: none;
+    transition: all 0.3s ease;
+}
+
+.quick-action-btn:hover {
+    background-color: #D4AF37;
+    color: #000080;
+    transform: translateY(-2px);
+}
+
+/* Profile Card Styles */
+.profile-card {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+}
+
+.profile-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    padding: 0.5rem;
+}
+
+.profile-image {
+    width: 80px;
+    height: 80px;
+    min-width: 80px;
+    border: 2px solid #D4AF37;
+    border-radius: 50%;
+    overflow: hidden;
+}
+
+.profile-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.profile-header h3 {
+    font-size: 0.9rem;
+    color: #FFD700;
+    margin: 0;
+    word-wrap: break-word;
+}
+
+.profile-info {
+    padding: 0.5rem;
+}
+
+.profile-info p {
+    font-size: 0.7rem;
+    margin-bottom: 0.3rem;
+    word-wrap: break-word;
+}
+
+/* Athlete Card in Fan Dashboard */
+.athlete-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.3);
+    border: 2px solid #D4AF37;
+    margin-bottom: 1rem;
+}
+
+.athlete-card .athlete-image {
+    width: 60px;
+    height: 60px;
+    border: 2px solid #D4AF37;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+/* Admin Dashboard Styles */
+.admin-dashboard {
+    padding: 2rem;
+}
+
+.stats-overview {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 2rem;
+    margin-bottom: 3rem;
+}
+
+.stat-card {
+    background: #2C1810;
+    border: 3px solid #D4AF37;
+    padding: 1.5rem;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    box-shadow: 3px 3px 0px #000;
+    transition: all 0.3s ease;
+}
+
+.stat-card:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 5px 5px 0px #000;
+}
+
+.stat-icon {
+    font-size: 2.5rem;
+    color: #D4AF37;
+}
+
+.stat-info h3 {
+    color: #D4AF37;
+    font-size: 1rem;
+    margin: 0;
+    font-family: 'Press Start 2P', cursive;
+}
+
+.stat-number {
+    color: #FFD700;
+    font-size: 2rem;
+    margin: 0.5rem 0 0;
+    font-family: 'Press Start 2P', cursive;
+}
+
+.quick-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+}
+
+.admin-action-btn {
+    background: #2C1810;
+    border: 3px solid #D4AF37;
+    padding: 1.5rem;
+    text-align: center;
+    color: #D4AF37;
+    text-decoration: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    transition: all 0.3s ease;
+    box-shadow: 3px 3px 0px #000;
+}
+
+.admin-action-btn:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 5px 5px 0px #000;
+    color: #FFD700;
+    text-decoration: none;
+}
+
+.admin-action-btn i {
+    font-size: 2rem;
+}
+
+.admin-action-btn span {
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.8rem;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    .main-content {
+        padding: 1rem;
+    }
+    
+    .content-wrapper {
+        padding: 1rem;
+    }
+    
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .quick-actions {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 480px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .quick-actions {
+        grid-template-columns: 1fr;
+    }
+    
+    .stat-value {
+        font-size: 1.5rem;
+    }
+}

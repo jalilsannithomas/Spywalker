@@ -1,0 +1,94 @@
+.navbar {
+    background-color: #2b1810;
+    border-bottom: 4px solid #8b4513;
+    padding: 0.5rem;
+    font-family: 'Press Start 2P', cursive;
+    image-rendering: pixelated;
+}
+
+.navbar-brand {
+    color: #ffd700;
+    text-shadow: 2px 2px #000;
+    font-size: 1.2rem;
+    padding: 0.5rem;
+    transition: all 0.3s ease;
+}
+
+.navbar-brand:hover {
+    color: #fff;
+    transform: scale(1.05);
+}
+
+.nav-link {
+    color: #d4af37;
+    margin: 0 0.5rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.8rem;
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+.nav-link:hover {
+    color: #ffd700;
+    text-shadow: 0 0 5px #ffd700;
+}
+
+.nav-link.active {
+    color: #fff;
+    background-color: #8b4513;
+    border: 2px solid #ffd700;
+    box-shadow: 0 0 5px rgba(255, 215, 0, 0.5);
+}
+
+.navbar-nav {
+    gap: 0.5rem;
+}
+
+.search-box {
+    background-color: #3d2317;
+    border: 2px solid #8b4513;
+    color: #ffd700;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.8rem;
+    padding: 0.5rem;
+    margin-right: 1rem;
+}
+
+.search-box:focus {
+    outline: none;
+    border-color: #ffd700;
+    box-shadow: 0 0 5px rgba(255, 215, 0, 0.5);
+}
+
+.admin-dropdown {
+    background-color: #2b1810;
+    border: 2px solid #8b4513;
+    padding: 0.5rem;
+}
+
+.admin-dropdown .dropdown-item {
+    color: #d4af37;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.7rem;
+    padding: 0.5rem;
+    transition: all 0.3s ease;
+}
+
+.admin-dropdown .dropdown-item:hover {
+    background-color: #3d2317;
+    color: #ffd700;
+    text-shadow: 0 0 5px #ffd700;
+}
+
+/* Pixel art arrow for dropdown */
+.dropdown-toggle::after {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background-color: #ffd700;
+    clip-path: polygon(50% 100%, 0 0, 100% 0);
+    margin-left: 8px;
+    vertical-align: middle;
+    image-rendering: pixelated;
+}

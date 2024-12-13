@@ -1,0 +1,9 @@
+-- Create table for athlete stats
+CREATE TABLE IF NOT EXISTS athlete_stats (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    athlete_id INT NOT NULL,
+    points DECIMAL(10,2) DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (athlete_id) REFERENCES athlete_profiles(id) ON DELETE CASCADE
+);
