@@ -5,18 +5,19 @@ error_reporting(E_ALL);
 
 session_start();
 require_once 'config/db.php';
+require_once 'config/config.php';
 require_once 'controllers/AuthController.php';
 require_once 'middleware/Auth.php';
 
-// Define base path
-define('BASE_PATH', '/Spywalker/');
+// Use config.php's base_url instead of hardcoding
+$base_path = $base_url;
 
 // Create AuthController instance
 $auth = new AuthController($conn);
 
 // Basic routing
 $request = $_SERVER['REQUEST_URI'];
-$path = str_replace(BASE_PATH, '', $request);
+$path = str_replace($base_path, '', $request);
 $path = explode('?', $path)[0];
 
 // Router
@@ -24,7 +25,7 @@ switch ($path) {
     case '':
     case '/':
         if (isset($_SESSION['user_id'])) {
-            header("Location: " . BASE_PATH . "dashboard.php");
+            header("Location: " . $base_path . "dashboard.php");
         } else {
             ?>
             <!DOCTYPE html>
@@ -163,9 +164,9 @@ switch ($path) {
         
     default:
         if (isset($_SESSION['user_id'])) {
-            header("Location: " . BASE_PATH . "dashboard.php");
+            header("Location: " . $base_path . "dashboard.php");
         } else {
-            header("Location: " . BASE_PATH . "login.php");
+            header("Location: " . $base_path . "login.php");
         }
         exit();
         break;

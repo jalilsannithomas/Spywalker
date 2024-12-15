@@ -22,57 +22,84 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action'])) {
         switch ($_POST['action']) {
             case 'add':
+                error_log("=== Starting team addition process ===");
                 $name = trim($_POST['team_name']);
                 $coach_id = isset($_POST['coach_id']) ? (int)$_POST['coach_id'] : null;
                 $sport_id = (int)$_POST['sport_id'];
                 $primary_color = trim($_POST['primary_color']);
                 $secondary_color = trim($_POST['secondary_color']);
                 
+                error_log("Attempting to add team with data: " . print_r([
+                    'name' => $name,
+                    'coach_id' => $coach_id,
+                    'sport_id' => $sport_id,
+                    'primary_color' => $primary_color,
+                    'secondary_color' => $secondary_color
+                ], true));
+                
                 if (!empty($name)) {
-                    $conn->begin_transaction();
+                    $conn->beginTransaction();
                     try {
                         // Insert team
-                        $stmt = $conn->prepare("INSERT INTO teams (name, coach_id, sport_id, primary_color, secondary_color) VALUES (?, ?, ?, ?, ?)");
-                        if (!$stmt) {
-                            throw new Exception("Error preparing team insert statement: " . $conn->error);
+                        $stmt = $conn->prepare("INSERT INTO teams (name, coach_id, sport_id, primary_color, secondary_color) VALUES (:name, :coach_id, :sport_id, :primary_color, :secondary_color)");
+                        $stmt->bindParam(':name', $name);
+                        $stmt->bindParam(':coach_id', $coach_id);
+                        $stmt->bindParam(':sport_id', $sport_id);
+                        $stmt->bindParam(':primary_color', $primary_color);
+                        $stmt->bindParam(':secondary_color', $secondary_color);
+                        
+                        error_log("Executing team insert query...");
+                        if (!$stmt->execute()) {
+                            $errorInfo = $stmt->errorInfo();
+                            error_log("Team insertion error: " . print_r($errorInfo, true));
+                            throw new PDOException("Failed to insert team: " . $errorInfo[2]);
                         }
                         
-                        $stmt->bind_param("siiss", $name, $coach_id, $sport_id, $primary_color, $secondary_color);
+                        $team_id = $conn->lastInsertId();
+                        error_log("Team inserted successfully with ID: $team_id");
                         
-                        if ($stmt->execute()) {
-                            $team_id = $conn->insert_id;
-                            
-                            // Insert players if provided
-                            if (isset($_POST['player_id']) && is_array($_POST['player_id'])) {
-                                $player_stmt = $conn->prepare("INSERT INTO team_members (team_id, user_id, position_id, jersey_number) VALUES (?, ?, ?, ?)");
-                                if (!$player_stmt) {
-                                    throw new Exception("Error preparing player insert statement: " . $conn->error);
-                                }
-                                
-                                foreach ($_POST['player_id'] as $index => $player_id) {
-                                    $position_id = $_POST['player_position'][$index] ?? null;
-                                    $jersey_number = $_POST['player_jersey'][$index] ?? null;
-                                    
-                                    $player_stmt->bind_param("iiii", $team_id, $player_id, $position_id, $jersey_number);
-                                    if (!$player_stmt->execute()) {
-                                        throw new Exception("Error adding player to team: " . $player_stmt->error);
-                                    }
-                                }
-                                $player_stmt->close();
-                            }
-                            
-                            $conn->commit();
-                            $message = "Team added successfully!";
+                        // Verify team was added
+                        $verify_query = "SELECT * FROM teams WHERE id = :team_id";
+                        $verify_stmt = $conn->prepare($verify_query);
+                        $verify_stmt->bindParam(':team_id', $team_id);
+                        
+                        if (!$verify_stmt->execute()) {
+                            $errorInfo = $verify_stmt->errorInfo();
+                            error_log("Verification query error: " . print_r($errorInfo, true));
                         } else {
-                            throw new Exception("Error adding team: " . $stmt->error);
+                            $new_team = $verify_stmt->fetch(PDO::FETCH_ASSOC);
+                            error_log("Verification of new team: " . print_r($new_team, true));
                         }
-                        $stmt->close();
+                        
+                        // Insert players if provided
+                        if (isset($_POST['player_id']) && is_array($_POST['player_id'])) {
+                            error_log("Adding players to team: " . print_r($_POST['player_id'], true));
+                            
+                            $player_stmt = $conn->prepare("INSERT INTO team_members (team_id, athlete_id) VALUES (:team_id, :athlete_id)");
+                            
+                            foreach ($_POST['player_id'] as $index => $player_id) {
+                                $player_stmt->bindParam(':team_id', $team_id);
+                                $player_stmt->bindParam(':athlete_id', $player_id);
+                                
+                                if (!$player_stmt->execute()) {
+                                    throw new Exception("Error adding player to team: " . implode(", ", $player_stmt->errorInfo()));
+                                }
+                            }
+                        }
+                        
+                        $conn->commit();
+                        $message = "Team added successfully!";
+                        error_log("=== Team addition completed successfully ===");
+                        
                     } catch (Exception $e) {
-                        $conn->rollback();
-                        $error = $e->getMessage();
+                        $conn->rollBack();
+                        error_log("Critical error during team addition: " . $e->getMessage());
+                        error_log("Error trace: " . $e->getTraceAsString());
+                        $error = "Failed to add team: " . $e->getMessage();
                     }
                 } else {
-                    $error = "Team name is required";
+                    error_log("Invalid team name provided");
+                    $error = "Team name cannot be empty";
                 }
                 break;
 
@@ -85,30 +112,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $secondary_color = trim($_POST['secondary_color']);
                 
                 if (!empty($name)) {
-                    $stmt = $conn->prepare("UPDATE teams SET name = ?, coach_id = ?, sport_id = ?, primary_color = ?, secondary_color = ? WHERE id = ?");
-                    $stmt->bind_param("siissi", $name, $coach_id, $sport_id, $primary_color, $secondary_color, $team_id);
-                    
-                    if ($stmt->execute()) {
-                        $message = "Team updated successfully!";
-                    } else {
-                        $error = "Error updating team: " . $conn->error;
+                    try {
+                        $stmt = $conn->prepare("UPDATE teams SET name = :name, coach_id = :coach_id, sport_id = :sport_id, primary_color = :primary_color, secondary_color = :secondary_color WHERE id = :team_id");
+                        $stmt->bindParam(':name', $name);
+                        $stmt->bindParam(':coach_id', $coach_id);
+                        $stmt->bindParam(':sport_id', $sport_id);
+                        $stmt->bindParam(':primary_color', $primary_color);
+                        $stmt->bindParam(':secondary_color', $secondary_color);
+                        $stmt->bindParam(':team_id', $team_id);
+                        
+                        if ($stmt->execute()) {
+                            $message = "Team updated successfully!";
+                            
+                            // Update players if provided
+                            if (isset($_POST['player_id']) && is_array($_POST['player_id'])) {
+                                // First, remove all existing team members
+                                $delete_stmt = $conn->prepare("DELETE FROM team_members WHERE team_id = :team_id");
+                                $delete_stmt->bindParam(':team_id', $team_id);
+                                $delete_stmt->execute();
+                                
+                                // Then add the new ones
+                                $player_stmt = $conn->prepare("INSERT INTO team_members (team_id, athlete_id) VALUES (:team_id, :athlete_id)");
+                                
+                                foreach ($_POST['player_id'] as $index => $player_id) {
+                                    $player_stmt->bindParam(':team_id', $team_id);
+                                    $player_stmt->bindParam(':athlete_id', $player_id);
+                                    
+                                    if (!$player_stmt->execute()) {
+                                        throw new Exception("Error updating team players: " . implode(", ", $player_stmt->errorInfo()));
+                                    }
+                                }
+                            }
+                        } else {
+                            throw new Exception("Error updating team: " . implode(", ", $stmt->errorInfo()));
+                        }
+                    } catch (Exception $e) {
+                        $error = $e->getMessage();
                     }
-                    $stmt->close();
+                } else {
+                    $error = "Team name is required";
                 }
                 break;
 
             case 'delete':
                 $team_id = (int)$_POST['team_id'];
                 
-                $stmt = $conn->prepare("DELETE FROM teams WHERE id = ?");
-                $stmt->bind_param("i", $team_id);
-                
-                if ($stmt->execute()) {
-                    $message = "Team deleted successfully!";
-                } else {
-                    $error = "Error deleting team: " . $conn->error;
+                try {
+                    // First delete team members
+                    $delete_members = $conn->prepare("DELETE FROM team_members WHERE team_id = :team_id");
+                    $delete_members->bindParam(':team_id', $team_id);
+                    $delete_members->execute();
+                    
+                    // Then delete the team
+                    $delete_team = $conn->prepare("DELETE FROM teams WHERE id = :team_id");
+                    $delete_team->bindParam(':team_id', $team_id);
+                    
+                    if ($delete_team->execute()) {
+                        $message = "Team deleted successfully!";
+                    } else {
+                        throw new Exception("Error deleting team: " . implode(", ", $delete_team->errorInfo()));
+                    }
+                } catch (Exception $e) {
+                    $error = $e->getMessage();
                 }
-                $stmt->close();
                 break;
         }
     }
@@ -116,103 +182,169 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Get all sports with their positions
 $sports = [];
-$query = "SELECT s.id, s.name, p.name as position_name 
+$query = "SELECT s.id as sport_id, s.name as sport_name, 
+          p.id as position_id, p.name as position_name 
           FROM sports s 
           LEFT JOIN positions p ON s.id = p.sport_id 
           ORDER BY s.id, p.name";
-$result = $conn->query($query);
-
-// Debug: Print the raw query result
-echo "<!-- Debug: Query result -->\n";
-if ($result) {
-    while ($row = $result->fetch_assoc()) {
-        $sport_id = $row['id'];
+try {
+    $stmt = $conn->prepare($query);
+    $stmt->execute();
+    
+    // Initialize sports array
+    $sports = [];
+    
+    // Fetch all rows using PDO
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $sport_id = $row['sport_id'];
         if (!isset($sports[$sport_id])) {
             $sports[$sport_id] = [
-                'id' => (int)$sport_id,  // Ensure integer type
-                'name' => $row['name'],
+                'id' => (string)$sport_id,  // Ensure string type for JSON
+                'name' => $row['sport_name'],
                 'positions' => []
             ];
         }
-        if ($row['position_name']) {
-            $sports[$sport_id]['positions'][] = $row['position_name'];
+        
+        // Add position if it exists
+        if (!empty($row['position_id'])) {
+            $sports[$sport_id]['positions'][] = [
+                'id' => (string)$row['position_id'],
+                'name' => $row['position_name']
+            ];
         }
     }
+    
+    // Convert indexed array to sequential array for JSON
     $sports = array_values($sports);
-    // Debug: Print the processed sports array
-    echo "<!-- Debug: Processed sports data\n";
-    print_r($sports);
-    echo "\n-->";
+    
+} catch (PDOException $e) {
+    error_log("Error fetching sports and positions: " . $e->getMessage());
+    $sports = [];  // Set empty array on error
 }
 
 // Get teams with their players
-$teams_query = "SELECT t.id, t.name, t.primary_color, t.secondary_color, t.sport_id, t.coach_id,
-                s.name as sport_name, 
-                CONCAT(cp.first_name, ' ', cp.last_name) as coach_name,
-                (SELECT COUNT(*) FROM team_members WHERE team_id = t.id) as player_count
-                FROM teams t 
+error_log("=== Starting team fetch process ===");
+error_log("Database connection state: " . ($conn ? "Connected" : "Not connected"));
+
+$teams_query = "SELECT t.id, t.name, t.sport_id, t.coach_id,
+                COALESCE(t.primary_color, '#000000') as primary_color,
+                COALESCE(t.secondary_color, '#FFFFFF') as secondary_color,
+                s.name as sport_name,
+                CONCAT(u.first_name, ' ', u.last_name) as coach_name
+                FROM teams t
                 LEFT JOIN sports s ON t.sport_id = s.id
-                LEFT JOIN coach_profiles cp ON t.coach_id = cp.id
-                GROUP BY t.id, t.name, t.primary_color, t.secondary_color, t.sport_id, t.coach_id, s.name, cp.first_name, cp.last_name
+                LEFT JOIN users u ON t.coach_id = u.id
                 ORDER BY t.name";
 
-// Debug: Print the query
-echo "<!-- Debug SQL: " . htmlspecialchars($teams_query) . " -->";
-
-$teams_result = $conn->query($teams_query);
-$teams = [];
-
-if ($teams_result) {
-    while ($team = $teams_result->fetch_assoc()) {
-        // Debug: Print team data
-        echo "<!-- Debug Team Data for ID " . htmlspecialchars($team['id']) . ":\n";
-        print_r($team);
-        echo "\n-->";
+try {
+    error_log("Preparing teams query...");
+    $teams_stmt = $conn->prepare($teams_query);
+    
+    error_log("Executing teams query...");
+    if (!$teams_stmt->execute()) {
+        $errorInfo = $teams_stmt->errorInfo();
+        error_log("Query execution error: " . print_r($errorInfo, true));
+        throw new PDOException("Query execution failed: " . $errorInfo[2]);
+    }
+    
+    $teams = [];
+    
+    // Debug: Log the number of teams found
+    $num_teams = $teams_stmt->rowCount();
+    error_log("Number of teams found in database: $num_teams");
+    
+    // Test direct fetch first
+    error_log("Testing direct fetch of first row...");
+    $test_row = $teams_stmt->fetch(PDO::FETCH_ASSOC);
+    if ($test_row === false) {
+        error_log("No rows returned from fetch");
+    } else {
+        error_log("Successfully fetched first row: " . print_r($test_row, true));
+        // Reset the cursor
+        $teams_stmt->execute();
+    }
+    
+    while ($team = $teams_stmt->fetch(PDO::FETCH_ASSOC)) {
+        error_log("Processing team ID: " . ($team['id'] ?? 'unknown'));
         
         $team_id = $team['id'];
         
-        // Get players for this team
-        $players_query = "SELECT u.id, u.first_name, u.last_name, tm.jersey_number, p.name as position
-                         FROM team_members tm
-                         JOIN users u ON tm.user_id = u.id
-                         LEFT JOIN positions p ON tm.position_id = p.id
-                         WHERE tm.team_id = ?
-                         ORDER BY tm.jersey_number";
-        
-        $players_stmt = $conn->prepare($players_query);
-        $players_stmt->bind_param('i', $team_id);
-        $players_stmt->execute();
-        $players_result = $players_stmt->get_result();
-        
-        $players = [];
-        while ($player = $players_result->fetch_assoc()) {
-            $players[] = $player;
+        try {
+            // Get players for this team
+            $players_query = "SELECT tm.id as member_id, u.id as athlete_id,
+                             CONCAT(u.first_name, ' ', u.last_name) as player_name
+                             FROM team_members tm
+                             JOIN users u ON tm.athlete_id = u.id
+                             WHERE tm.team_id = :team_id";
+            
+            error_log("Executing player query for team $team_id: $players_query");
+            $players_stmt = $conn->prepare($players_query);
+            $players_stmt->bindParam(':team_id', $team_id);
+            
+            if (!$players_stmt->execute()) {
+                $errorInfo = $players_stmt->errorInfo();
+                error_log("Error fetching players for team $team_id: " . print_r($errorInfo, true));
+                $team['players'] = [];
+            } else {
+                $team['players'] = $players_stmt->fetchAll(PDO::FETCH_ASSOC);
+                error_log("Found " . count($team['players']) . " players for team $team_id");
+                error_log("Players data: " . print_r($team['players'], true));
+            }
+        } catch (PDOException $e) {
+            error_log("Exception while fetching players for team $team_id: " . $e->getMessage());
+            $team['players'] = [];
         }
         
-        $team['players'] = $players;
         $teams[] = $team;
-        
-        $players_stmt->close();
     }
+    
+    error_log("=== Team fetch process completed ===");
+    error_log("Total teams processed: " . count($teams));
+    
+} catch (PDOException $e) {
+    $errorMessage = "Database error: " . $e->getMessage();
+    error_log("Critical error in teams fetch: " . $errorMessage);
+    error_log("Error code: " . $e->getCode());
+    error_log("Error trace: " . $e->getTraceAsString());
+    
+    // Set a more specific error message for display
+    if (strpos($e->getMessage(), 'Connection refused') !== false) {
+        $error = "Unable to connect to the database. Please try again later.";
+    } else if (strpos($e->getMessage(), 'Access denied') !== false) {
+        $error = "Database access error. Please contact support.";
+    } else {
+        $error = "Error loading teams: " . $e->getMessage();
+    }
+    $teams = [];
 }
 
-// Get coaches
-$coaches_query = "SELECT cp.id, cp.first_name, cp.last_name 
-                 FROM coach_profiles cp 
-                 JOIN users u ON u.id = cp.user_id 
-                 WHERE u.role = 'coach' 
-                 ORDER BY cp.last_name, cp.first_name";
-$coaches_result = $conn->query($coaches_query);
-$coaches = [];
-if ($coaches_result) {
-    while ($row = $coaches_result->fetch_assoc()) {
+// Debug final state
+error_log("Final teams array count: " . count($teams));
+if (empty($teams)) {
+    error_log("Warning: No teams available for display");
+}
+
+// Get all coaches
+$coaches_query = "SELECT u.id, u.first_name, u.last_name 
+                 FROM users u 
+                 WHERE u.role = 'coach'
+                 ORDER BY u.first_name, u.last_name";
+
+try {
+    $coaches_stmt = $conn->prepare($coaches_query);
+    $coaches_stmt->execute();
+    $coaches = [];
+    
+    while ($row = $coaches_stmt->fetch(PDO::FETCH_ASSOC)) {
         $coaches[] = [
             'id' => $row['id'],
             'name' => $row['first_name'] . ' ' . $row['last_name']
         ];
     }
+} catch (PDOException $e) {
+    error_log("Error fetching coaches: " . $e->getMessage());
+    $coaches = [];
 }
-
 ?>
 
 <!DOCTYPE html>
@@ -502,36 +634,23 @@ if ($coaches_result) {
             <?php foreach ($teams as $team): ?>
                 <div class="col-md-4 mb-4">
                     <div class="team-card">
-                        <h3><?php echo htmlspecialchars($team['name']); ?></h3>
-                        <p><strong>Sport:</strong> <?php echo htmlspecialchars($team['sport_name'] ?? 'Not Specified'); ?></p>
-                        <p><strong>Coach:</strong> 
-                            <?php 
-                                echo "<!-- Debug coach_id: " . htmlspecialchars(var_export($team['coach_id'], true)) . " -->"; 
-                                echo "<!-- Debug coach_name: " . htmlspecialchars(var_export($team['coach_name'], true)) . " -->"; 
-                                echo htmlspecialchars($team['coach_name'] ?: 'Not Assigned'); 
-                            ?>
-                        </p>
-                        <p><strong>Players:</strong> <?php echo (int)$team['player_count']; ?></p>
+                        <h3 class="team-name"><?php echo htmlspecialchars($team['name']); ?></h3>
+                        <div class="team-info">
+                            <p><strong>Sport:</strong> <?php echo htmlspecialchars($team['sport_name'] ?? 'Not Specified'); ?></p>
+                            <p><strong>Coach:</strong> <?php echo htmlspecialchars($team['coach_name'] ?: 'Not Assigned'); ?></p>
+                            <p><strong>Players:</strong> <?php echo count($team['players']); ?></p>
+                        </div>
                         
-                        <?php if (!empty($team['players'])): ?>
-                            <div class="players-list">
-                                <h4>Roster:</h4>
-                                <ul>
-                                <?php foreach ($team['players'] as $player): ?>
-                                    <li>
-                                        #<?php echo htmlspecialchars($player['jersey_number']); ?> 
-                                        <?php echo htmlspecialchars($player['first_name'] . ' ' . $player['last_name']); ?> 
-                                        (<?php echo htmlspecialchars($player['position']); ?>)
-                                    </li>
-                                <?php endforeach; ?>
-                                </ul>
-                            </div>
-                        <?php endif; ?>
-                        
-                        <div class="team-actions">
-                            <a href="manage_roster.php?team_id=<?php echo $team['id']; ?>" class="btn btn-vintage btn-sm">Manage Roster</a>
-                            <button class="btn btn-vintage btn-sm" onclick="editTeam(<?php echo htmlspecialchars(json_encode($team)); ?>)">Edit Team</button>
-                            <button class="btn btn-danger btn-sm" onclick="deleteTeam(<?php echo $team['id']; ?>)">Delete Team</button>
+                        <div class="team-actions mt-3">
+                            <a href="manage_roster.php?team_id=<?php echo $team['id']; ?>" class="btn btn-vintage">
+                                <i class="fas fa-users"></i> Roster
+                            </a>
+                            <button onclick="editTeam(<?php echo htmlspecialchars(json_encode($team)); ?>)" class="btn btn-vintage">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                            <button onclick="deleteTeam(<?php echo $team['id']; ?>)" class="btn btn-vintage btn-vintage-danger">
+                                <i class="fas fa-trash"></i> Delete
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -681,28 +800,42 @@ if ($coaches_result) {
     <script>
         // Store sports and their positions
         const sportsPositions = <?php echo json_encode($sports); ?>;
+        console.log('Sports and positions:', sportsPositions);
         
         function addPlayer() {
+            console.log('addPlayer called');
             const playersList = document.getElementById('players-list');
             const sportId = document.getElementById('sport_id').value;
+            console.log('Selected sport ID:', sportId);
+            
+            if (!sportId) {
+                alert('Please select a sport first');
+                return;
+            }
+            
             const newPlayer = document.createElement('div');
             newPlayer.className = 'player-row mb-2';
             
             // Get available players who are not in any team
             fetch(`get_available_players.php?sport_id=${sportId}`)
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
                 .then(players => {
+                    console.log('Available players:', players);
                     let playersOptions = players.map(p => 
                         `<option value="${p.id}">${p.first_name} ${p.last_name}</option>`
                     ).join('');
                     
                     // Get positions for the selected sport
                     let positions = [];
-                    if (sportId) {
-                        const sport = sportsPositions.find(s => s.id === sportId);
-                        if (sport && sport.positions) {
-                            positions = sport.positions;
-                        }
+                    const sport = sportsPositions.find(s => s.id === sportId);
+                    console.log('Found sport:', sport);
+                    if (sport && sport.positions) {
+                        positions = sport.positions;
                     }
                     
                     let positionsOptions = positions.map(p => 
@@ -736,6 +869,10 @@ if ($coaches_result) {
                     `;
                     
                     playersList.appendChild(newPlayer);
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Failed to fetch available players. Please try again.');
                 });
         }
         
@@ -784,19 +921,24 @@ if ($coaches_result) {
             
             // Get available players who are not in any team
             fetch(`get_available_players.php?sport_id=${sportId}`)
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
                 .then(players => {
+                    console.log('Available players:', players);
                     let playersOptions = players.map(p => 
                         `<option value="${p.id}">${p.first_name} ${p.last_name}</option>`
                     ).join('');
                     
                     // Get positions for the selected sport
                     let positions = [];
-                    if (sportId) {
-                        const sport = sportsPositions.find(s => s.id === sportId);
-                        if (sport && sport.positions) {
-                            positions = sport.positions;
-                        }
+                    const sport = sportsPositions.find(s => s.id === sportId);
+                    console.log('Found sport:', sport);
+                    if (sport && sport.positions) {
+                        positions = sport.positions;
                     }
                     
                     let positionsOptions = positions.map(p => 
@@ -830,6 +972,10 @@ if ($coaches_result) {
                     `;
                     
                     playersList.appendChild(newPlayer);
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Failed to fetch available players. Please try again.');
                 });
         }
         
@@ -854,7 +1000,7 @@ if ($coaches_result) {
                                 <select class="form-select" name="player_id[]" required>
                                     <option value="">Select Player</option>
                                     <option value="${player.user_id}" selected>
-                                        ${player.first_name} ${player.last_name}
+                                        ${player.player_name}
                                     </option>
                                 </select>
                             </div>
@@ -862,7 +1008,7 @@ if ($coaches_result) {
                                 <select class="form-select" name="player_position[]">
                                     <option value="">Select Position</option>
                                     <option value="${player.position_id}" selected>
-                                        ${player.position}
+                                        ${player.position_name}
                                     </option>
                                 </select>
                             </div>
@@ -883,6 +1029,30 @@ if ($coaches_result) {
             
             const modal = new bootstrap.Modal(document.getElementById('editTeamModal'));
             modal.show();
+        }
+        
+        function deleteTeam(teamId) {
+            if (confirm('Are you sure you want to delete this team? This action cannot be undone.')) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.style.display = 'none';
+
+                const actionInput = document.createElement('input');
+                actionInput.type = 'hidden';
+                actionInput.name = 'action';
+                actionInput.value = 'delete';
+
+                const teamIdInput = document.createElement('input');
+                teamIdInput.type = 'hidden';
+                teamIdInput.name = 'team_id';
+                teamIdInput.value = teamId;
+
+                form.appendChild(actionInput);
+                form.appendChild(teamIdInput);
+                document.body.appendChild(form);
+
+                form.submit();
+            }
         }
     </script>
 </body>

@@ -1,105 +1,187 @@
 <?php
-session_start();
+// Prevent any output buffering issues
+ob_start();
+
+// Disable error display in output
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
+
+// Set up error handling to log rather than display
+ini_set('log_errors', 1);
+ini_set('error_log', '/tmp/php-error.log');
+
+// Start session if not already started
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 require_once '../config/db.php';
 
+// Enable error logging
+error_log("Starting save_event.php");
+error_log("Session data: " . print_r($_SESSION, true));
+
+// Set JSON headers
 header('Content-Type: application/json');
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: POST');
+header('Access-Control-Allow-Headers: Content-Type');
 
-// Verify database connection
-if (!isset($conn) || $conn->connect_error) {
-    error_log("Database connection failed");
-    echo json_encode(['success' => false, 'message' => 'Database connection failed']);
+// Handle preflight OPTIONS request
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
     exit();
 }
 
-// Check session
-if (!isset($_SESSION['user_id'])) {  
-    error_log("User not logged in");
-    echo json_encode(['success' => false, 'message' => 'Not logged in']);
+// Initialize debug info array
+$debug_info = [
+    'session' => $_SESSION,
+    'timestamp' => date('Y-m-d H:i:s'),
+    'request' => file_get_contents('php://input'),
+    'steps' => []
+];
+
+// Function to send JSON response
+function send_json_response($success, $message, $debug_info = [], $data = null) {
+    $response = [
+        'success' => $success, 
+        'message' => $message,
+        'debug_info' => $debug_info
+    ];
+    if ($data !== null) {
+        $response = array_merge($response, $data);
+    }
+    error_log("Sending response: " . print_r($response, true));
+    echo json_encode($response);
     exit();
 }
-
-$user_id = $_SESSION['user_id'];  
-
-// Get POST data
-$raw_data = file_get_contents('php://input');
-error_log("Received data: " . $raw_data);
-$data = json_decode($raw_data, true);
-
-if (!isset($data['date']) || !isset($data['text'])) {
-    error_log("Missing required fields. Data received: " . print_r($data, true));
-    echo json_encode(['success' => false, 'message' => 'Missing required fields']);
-    exit();
-}
-
-$date = $data['date'];
-$text = $data['text'];
 
 try {
-    // Check if event already exists for this date and user
-    $check_query = "SELECT id FROM events WHERE user_id = ? AND event_date = ?";
-    error_log("Checking for existing event - User ID: $user_id, Date: $date");
-    
-    $stmt = $conn->prepare($check_query);
-    if (!$stmt) {
-        throw new Exception("Prepare failed: " . $conn->error);
-    }
-    
-    $stmt->bind_param("is", $user_id, $date);
-    if (!$stmt->execute()) {
-        throw new Exception("Execute failed: " . $stmt->error);
-    }
-    
-    $result = $stmt->get_result();
-    error_log("Found " . $result->num_rows . " existing events");
-    
-    if ($result->num_rows > 0) {
-        // Update existing event
-        $row = $result->fetch_assoc();
-        $event_id = $row['id'];
-        
-        // Prepare update statement
-        $stmt = $conn->prepare("UPDATE events SET event_text = ? WHERE id = ? AND user_id = ?");
-        if (!$stmt) {
-            throw new Exception("Prepare update failed: " . $conn->error);
-        }
-        
-        error_log("Updating event - ID: $event_id, User ID: $user_id, Text: $text");
-        $stmt->bind_param("sii", $text, $event_id, $user_id);
-        $success = $stmt->execute();
-        
-        if (!$success) {
-            error_log("Update failed: " . $stmt->error);
-            throw new Exception("Update failed: " . $stmt->error);
-        }
-    } else {
-        // Insert new event
-        $insert_query = "INSERT INTO events (user_id, event_date, event_text) VALUES (?, ?, ?)";
-        error_log("Inserting new event - User ID: $user_id, Date: $date, Text: $text");
-        
-        $stmt = $conn->prepare($insert_query);
-        if (!$stmt) {
-            throw new Exception("Prepare insert failed: " . $conn->error);
-        }
-        $stmt->bind_param("iss", $user_id, $date, $text);
-        $success = $stmt->execute();
-        $event_id = $conn->insert_id;
-        error_log("New event created with ID: $event_id");
+    // Verify database connection
+    if (!isset($conn)) {
+        throw new Exception('Database connection failed');
     }
 
-    if (!$success) {
-        throw new Exception("Query execution failed");
+    // Check session
+    if (!isset($_SESSION['user_id'])) {
+        throw new Exception('Not logged in');
     }
 
-    echo json_encode([
-        'success' => true,
-        'eventId' => $event_id
+    $user_id = $_SESSION['user_id'];
+    $team_id = $_SESSION['team_id'] ?? null;
+    $debug_info['steps'][] = "User ID: $user_id, Team ID: " . ($team_id ?? 'null');
+    error_log("User ID: $user_id, Team ID: " . ($team_id ?? 'null'));
+
+    // Get sport_id from the team if available
+    $sport_id = null;
+    if ($team_id) {
+        $team_query = "SELECT sport_id FROM teams WHERE id = :team_id";
+        $stmt = $conn->prepare($team_query);
+        $stmt->execute([':team_id' => $team_id]);
+        $team = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($team) {
+            $sport_id = $team['sport_id'];
+        }
+    }
+
+    // If no team or team has no sport, get the first available sport
+    if (!$sport_id) {
+        $sport_query = "SELECT id FROM sports LIMIT 1";
+        $stmt = $conn->prepare($sport_query);
+        $stmt->execute();
+        $sport = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$sport) {
+            throw new Exception('No sports available in the system');
+        }
+        $sport_id = $sport['id'];
+    }
+    $debug_info['steps'][] = "Sport ID: $sport_id";
+    error_log("Sport ID: $sport_id");
+
+    // Get and decode JSON input
+    $raw_data = file_get_contents('php://input');
+    $data = json_decode($raw_data, true);
+    $debug_info['steps'][] = "Received data: " . print_r($data, true);
+    error_log("Raw input: " . $raw_data);
+    error_log("Decoded data: " . print_r($data, true));
+
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        throw new Exception('Invalid JSON data: ' . json_last_error_msg());
+    }
+
+    if (!isset($data['date']) || !isset($data['text'])) {
+        throw new Exception('Missing required fields');
+    }
+
+    // Start transaction
+    $conn->beginTransaction();
+    $debug_info['steps'][] = "Started transaction";
+    error_log("Started transaction");
+
+    // Insert into events table with all required fields
+    $insert_query = "INSERT INTO events (title, sport_id, start_time, end_time, created_at) 
+                    VALUES (:title, :sport_id, :start_time, :end_time, NOW())";
+    
+    $stmt = $conn->prepare($insert_query);
+    $params = [
+        ':title' => $data['text'],
+        ':sport_id' => $sport_id,
+        ':start_time' => $data['date'],
+        ':end_time' => $data['date'] // Using same date for end_time for now
+    ];
+    $debug_info['steps'][] = "Executing insert with params: " . print_r($params, true);
+    error_log("Executing query with params: " . print_r($params, true));
+    
+    if (!$stmt->execute($params)) {
+        throw new Exception('Failed to insert event: ' . implode(', ', $stmt->errorInfo()));
+    }
+    
+    $event_id = $conn->lastInsertId();
+    $debug_info['steps'][] = "Event inserted with ID: $event_id";
+    error_log("Inserted event with ID: $event_id");
+
+    // If we have a team_id, link the event to the team
+    if ($team_id) {
+        $team_event_query = "INSERT INTO team_events (event_id, team_id) VALUES (:event_id, :team_id)";
+        $stmt = $conn->prepare($team_event_query);
+        if (!$stmt->execute([':event_id' => $event_id, ':team_id' => $team_id])) {
+            throw new Exception('Failed to link event to team');
+        }
+        $debug_info['steps'][] = "Event linked to team $team_id";
+    }
+
+    // Verify the event was saved
+    $verify_query = "SELECT e.*, te.team_id 
+                    FROM events e 
+                    JOIN team_events te ON e.id = te.event_id 
+                    WHERE e.id = :event_id AND te.team_id = :team_id";
+    $stmt = $conn->prepare($verify_query);
+    $stmt->execute([':event_id' => $event_id, ':team_id' => $team_id]);
+    $saved_event = $stmt->fetch(PDO::FETCH_ASSOC);
+    $debug_info['steps'][] = "Verification query result: " . print_r($saved_event, true);
+
+    // Commit transaction
+    $conn->commit();
+    $debug_info['steps'][] = "Transaction committed successfully";
+    error_log("Transaction committed");
+    
+    send_json_response(true, 'Event saved successfully', $debug_info, [
+        'eventId' => $event_id,
+        'event' => $saved_event
     ]);
 
 } catch (Exception $e) {
-    error_log("Error saving event: " . $e->getMessage());
-    echo json_encode([
-        'success' => false, 
-        'message' => 'Database error: ' . $e->getMessage()
-    ]);
+    // Rollback transaction if one is active
+    if (isset($conn) && $conn->inTransaction()) {
+        $conn->rollBack();
+        $debug_info['steps'][] = "Transaction rolled back due to error";
+        error_log("Transaction rolled back");
+    }
+    
+    $debug_info['error'] = $e->getMessage();
+    error_log("Error in save_event.php: " . $e->getMessage());
+    send_json_response(false, $e->getMessage(), $debug_info);
 }
-?>
+
+// Clear any output buffers and end
+ob_end_clean();

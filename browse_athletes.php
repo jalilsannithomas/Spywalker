@@ -1,75 +1,80 @@
 <?php
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 session_start();
 require_once 'config/db.php';
 
-if (!isset($_SESSION['user_id'])) {
-    header("Location: login.php");
+// Initialize error logging
+try {
+    if (!isset($_SESSION['user_id'])) {
+        header("Location: login.php");
+        exit();
+    }
+
+    $user_id = $_SESSION['user_id'];
+
+    // Get user's roster count
+    $roster_sql = "SELECT ft.id, COUNT(ftp.athlete_id) as athlete_count 
+                   FROM fantasy_teams ft 
+                   LEFT JOIN fantasy_team_players ftp ON ft.id = ftp.team_id 
+                   WHERE ft.user_id = ?
+                   GROUP BY ft.id";
+    $stmt = $conn->prepare($roster_sql);
+    $stmt->execute([$user_id]);
+    $roster = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($roster && $roster['athlete_count'] >= 7) {
+        header("Location: manage_roster.php?error=roster_full");
+        exit();
+    }
+
+    // Get filter values
+    $sport_filter = isset($_GET['sport']) ? $_GET['sport'] : '';
+    $search = isset($_GET['search']) ? $_GET['search'] : '';
+
+    // Build query
+    $query = "SELECT ap.*, s.name as sport_name, apm.base_rating, apm.achievement_points,
+              (apm.base_rating * 100 + apm.achievement_points + (apm.games_played * 5)) as total_points,
+              CASE WHEN ftp.athlete_id IS NOT NULL THEN 1 ELSE 0 END as is_collected
+              FROM athlete_profiles ap
+              JOIN sports s ON ap.sport_id = s.id
+              LEFT JOIN athlete_performance_metrics apm ON ap.id = apm.athlete_id
+              LEFT JOIN fantasy_team_players ftp ON ap.id = ftp.athlete_id 
+              LEFT JOIN fantasy_teams ft ON ftp.team_id = ft.id AND ft.user_id = ?
+              WHERE 1=1";
+
+    $params = [$user_id];
+
+    if ($sport_filter) {
+        $query .= " AND ap.sport_id = ?";
+        $params[] = $sport_filter;
+    }
+
+    if ($search) {
+        $query .= " AND (ap.first_name LIKE ? OR ap.last_name LIKE ?)";
+        $search_param = "%$search%";
+        $params[] = $search_param;
+        $params[] = $search_param;
+    }
+
+    $query .= " ORDER BY total_points DESC";
+
+    $stmt = $conn->prepare($query);
+    $stmt->execute($params);
+    $athletes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Get all sports for filter
+    $sports_stmt = $conn->query("SELECT * FROM sports ORDER BY name");
+    $sports = $sports_stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    error_log('Database Error: ' . $e->getMessage());
+    header("Location: error.php?message=" . urlencode("Database connection error"));
+    exit();
+} catch (Exception $e) {
+    error_log('General Error: ' . $e->getMessage());
+    header("Location: error.php");
     exit();
 }
-
-$user_id = $_SESSION['user_id'];
-
-// Get user's roster count
-$roster_sql = "SELECT fr.id, COUNT(fra.athlete_id) as athlete_count 
-               FROM fantasy_rosters fr 
-               LEFT JOIN fantasy_roster_athletes fra ON fr.id = fra.roster_id 
-               WHERE fr.user_id = ?
-               GROUP BY fr.id";
-$stmt = $conn->prepare($roster_sql);
-$stmt->bind_param("i", $user_id);
-$stmt->execute();
-$roster_result = $stmt->get_result();
-$roster = $roster_result->fetch_assoc();
-
-if ($roster && $roster['athlete_count'] >= 7) {
-    header("Location: manage_roster.php?error=roster_full");
-    exit();
-}
-
-// Get filter values
-$sport_filter = isset($_GET['sport']) ? $_GET['sport'] : '';
-$search = isset($_GET['search']) ? $_GET['search'] : '';
-
-// Build query
-$query = "SELECT ap.*, s.name as sport_name, apm.base_rating, apm.achievement_points,
-          (apm.base_rating * 100 + apm.achievement_points + (apm.games_played * 5)) as total_points,
-          CASE WHEN fra.athlete_id IS NOT NULL THEN 1 ELSE 0 END as is_collected
-          FROM athlete_profiles ap
-          JOIN sports s ON ap.sport_id = s.id
-          LEFT JOIN athlete_performance_metrics apm ON ap.id = apm.athlete_id
-          LEFT JOIN fantasy_roster_athletes fra ON ap.id = fra.athlete_id 
-          LEFT JOIN fantasy_rosters fr ON fra.roster_id = fr.id AND fr.user_id = ?
-          WHERE 1=1";
-
-$params = [$user_id];
-$types = "i";
-
-if ($sport_filter) {
-    $query .= " AND ap.sport_id = ?";
-    $params[] = $sport_filter;
-    $types .= "i";
-}
-
-if ($search) {
-    $query .= " AND (ap.first_name LIKE ? OR ap.last_name LIKE ?)";
-    $search_param = "%$search%";
-    $params[] = $search_param;
-    $params[] = $search_param;
-    $types .= "ss";
-}
-
-$query .= " ORDER BY total_points DESC";
-
-$stmt = $conn->prepare($query);
-if (!empty($params)) {
-$stmt->bind_param($types, ...$params);
-}
-$stmt->execute();
-$athletes = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-
-// Get all sports for filter
-$sports_sql = "SELECT * FROM sports ORDER BY name";
-$sports = $conn->query($sports_sql)->fetch_all(MYSQLI_ASSOC);
 ?>
 
 <!DOCTYPE html>

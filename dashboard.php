@@ -22,16 +22,26 @@ $query = "SELECT
           WHERE u.id = ?";
 
 $stmt = $conn->prepare($query);
-$stmt->bind_param("i", $user_id);
-$stmt->execute();
-$result = $stmt->get_result();
-$user = $result->fetch_assoc();
+if (!$stmt) {
+    die("Error preparing statement: " . $conn->error);
+}
 
-// Get athlete specific information if user is an athlete
+$stmt->bindValue(1, $user_id, PDO::PARAM_INT);
+$stmt->execute();
+$user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+// Check if user exists before accessing array
+if (!$user) {
+    header("Location: login.php");
+    exit();
+}
+
+// Now we can safely access $user array
 $athlete_info = null;
 if ($user['role'] === 'athlete') {
     $athlete_query = "SELECT 
-        ap.height,
+        ap.height_feet,
+        ap.height_inches,
         ap.weight,
         ap.position_id,
         ap.sport_id,
@@ -42,112 +52,194 @@ if ($user['role'] === 'athlete') {
         sp.name as primary_sport,
         tm.team_id
     FROM athlete_profiles ap
-    LEFT JOIN team_members tm ON ap.user_id = tm.user_id
+    LEFT JOIN team_members tm ON ap.user_id = tm.athlete_id
     LEFT JOIN teams t ON tm.team_id = t.id
     LEFT JOIN sports s ON t.sport_id = s.id
     LEFT JOIN positions p ON ap.position_id = p.id
     LEFT JOIN users u ON ap.user_id = u.id
     LEFT JOIN sports sp ON ap.sport_id = sp.id
     WHERE ap.user_id = ?";
-    
-    $athlete_stmt = $conn->prepare($athlete_query);
-    $athlete_stmt->bind_param("i", $user_id);
-    $athlete_stmt->execute();
-    $athlete_result = $athlete_stmt->get_result();
-    $athlete_info = $athlete_result->fetch_assoc();
 
-    // Get upcoming games for the athlete's team
-    if ($athlete_info['team_id']) {
-        $games_query = "SELECT m.*, 
-            t1.name as home_team_name,
-            t2.name as away_team_name,
-            s.name as sport_name,
-            COALESCE(v.name, 'TBD') as venue_name
-        FROM matches m
-        JOIN teams t1 ON m.home_team_id = t1.id
-        JOIN teams t2 ON m.away_team_id = t2.id
-        JOIN sports s ON m.sport_id = s.id
-        LEFT JOIN venues v ON m.venue_id = v.id
-        WHERE (m.home_team_id = ? OR m.away_team_id = ?)
-        AND m.match_date >= CURDATE()
-        ORDER BY m.match_date ASC
-        LIMIT 5";
-        
-        $games_stmt = $conn->prepare($games_query);
-        $games_stmt->bind_param("ii", $athlete_info['team_id'], $athlete_info['team_id']);
-        $games_stmt->execute();
-        $upcoming_games = $games_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-    }
+    $athlete_stmt = $conn->prepare($athlete_query);
+    $athlete_stmt->bindValue(1, $user_id, PDO::PARAM_INT);
+    $athlete_stmt->execute();
+    $athlete_info = $athlete_stmt->fetch(PDO::FETCH_ASSOC);
+} 
+
+// Get upcoming games for the athlete's team
+if ($athlete_info && $athlete_info['team_id']) {
+    $games_query = "SELECT 
+        m.*,
+        t1.name as home_team,
+        t2.name as away_team,
+        s.name as sport_name
+    FROM matches m
+    JOIN teams t1 ON m.home_team_id = t1.id
+    JOIN teams t2 ON m.away_team_id = t2.id
+    JOIN sports s ON m.sport_id = s.id
+    WHERE (m.home_team_id = ? OR m.away_team_id = ?)
+    AND m.match_date >= CURDATE()
+    ORDER BY m.match_date ASC
+    LIMIT 5";
+    
+    $games_stmt = $conn->prepare($games_query);
+    $games_stmt->bindValue(1, $athlete_info['team_id'], PDO::PARAM_INT);
+    $games_stmt->bindValue(2, $athlete_info['team_id'], PDO::PARAM_INT);
+    $games_stmt->execute();
+    $upcoming_games = $games_stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
 // Function to convert inches to feet and inches display
-function formatHeight($inches) {
-    if (!$inches) return 'Not set';
-    $feet = floor($inches / 12);
-    $remaining_inches = $inches % 12;
-    return $feet . "'" . $remaining_inches . '"';
+function formatHeight($feet, $inches) {
+    if (!$feet && !$inches) return 'Not set';
+    return $feet . "'" . $inches . '"';
 }
 
-// For admin dashboard
-if ($user['role'] === 'admin') {
-    // Get total users count
-    $users_query = "SELECT COUNT(*) as count FROM users WHERE role != 'admin'";
-    $users_result = $conn->query($users_query);
-    $total_users = $users_result->fetch_assoc()['count'];
-
-    // Get total teams count
-    $teams_query = "SELECT COUNT(*) as count FROM teams";
-    $teams_result = $conn->query($teams_query);
-    $total_teams = $teams_result->fetch_assoc()['count'];
-
-    // Get total matches count
-    $matches_query = "SELECT COUNT(*) as count FROM team_events";
-    $matches_result = $conn->query($matches_query);
-    $total_matches = $matches_result->fetch_assoc()['count'];
-}
-
-// Get upcoming events count
+// Initialize variables with default values
 $events_count = 0;
-if ($user['role'] === 'admin') {
-    $events_query = "SELECT COUNT(*) as count FROM team_events WHERE event_date >= CURDATE()";
-    $events_result = $conn->query($events_query);
-    $events_count = $events_result->fetch_assoc()['count'];
-} else {
-    if ($user['role'] === 'fan') {
-        $events_query = "SELECT COUNT(DISTINCT te.id) as count 
-                        FROM team_events te
-                        INNER JOIN teams t ON t.id = te.team_id
-                        INNER JOIN team_players tp ON tp.team_id = t.id
-                        INNER JOIN athlete_profiles ap ON ap.id = tp.athlete_id
-                        INNER JOIN fan_followed_athletes ffa ON ffa.athlete_id = ap.id
-                        WHERE ffa.fan_id = ? AND te.event_date >= CURDATE()";
-        $events_stmt = $conn->prepare($events_query);
-        $events_stmt->bind_param("i", $user_id);
-        $events_stmt->execute();
-        $events_result = $events_stmt->get_result();
-        $events_count = $events_result->fetch_assoc()['count'];
-    } else {
-        $events_query = "SELECT COUNT(*) as count FROM events WHERE event_date >= CURDATE()";
-        $events_result = $conn->query($events_query);
-        $events_count = $events_result->fetch_assoc()['count'];
-    }
-}
-
-// Get team members count (simplified for now)
 $followed_count = 0;
+$team_members_count = 0;
+$total_athletes = 0;
+$total_wins = 0;
+$upcoming_games_count = 0;
+$upcoming_games = [];
+
 try {
-    if ($user['role'] === 'fan') {
-        $following_query = "SELECT COUNT(*) as count FROM fan_followed_athletes WHERE fan_id = ?";
-        $stmt = $conn->prepare($following_query);
-        $stmt->bind_param("i", $user_id);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        if ($result) {
-            $followed_count = $result->fetch_assoc()['count'];
+    if ($user['role'] === 'admin') {
+        // Get total users count
+        $users_query = "SELECT COUNT(*) as count FROM users WHERE role != 'admin'";
+        $users_result = $conn->query($users_query);
+        $total_users = $users_result->fetch(PDO::FETCH_ASSOC)['count'];
+
+        // Get total teams count
+        $teams_query = "SELECT COUNT(*) as count FROM teams";
+        $teams_result = $conn->query($teams_query);
+        $total_teams = $teams_result->fetch(PDO::FETCH_ASSOC)['count'];
+
+        // Get events count (only if events table exists)
+        try {
+            $events_query = "SELECT COUNT(*) as count FROM events e WHERE e.start_date >= CURDATE()";
+            $events_result = $conn->query($events_query);
+            $events_count = $events_result->fetch(PDO::FETCH_ASSOC)['count'];
+        } catch (PDOException $e) {
+            // Table might not exist yet
+            $events_count = 0;
+        }
+    } else if ($user['role'] === 'fan') {
+        try {
+            $events_query = "SELECT COUNT(DISTINCT te.id) as count 
+                            FROM events e
+                            INNER JOIN team_events te ON te.event_id = e.id
+                            INNER JOIN teams t ON te.team_id = t.id
+                            INNER JOIN team_members tm ON tm.team_id = t.id
+                            INNER JOIN athlete_profiles ap ON ap.user_id = tm.athlete_id
+                            INNER JOIN fan_followed_athletes ffa ON ffa.athlete_id = ap.user_id
+                            WHERE ffa.fan_id = ? AND e.start_date >= CURDATE()";
+            $events_stmt = $conn->prepare($events_query);
+            $events_stmt->bindValue(1, $user_id, PDO::PARAM_INT);
+            $events_stmt->execute();
+            $events_count = $events_stmt->fetch(PDO::FETCH_ASSOC)['count'];
+        } catch (PDOException $e) {
+            // Tables might not exist yet
+            $events_count = 0;
+        }
+
+        // Get followed athletes count
+        try {
+            $following_query = "SELECT COUNT(DISTINCT athlete_id) as count FROM fan_followed_athletes WHERE fan_id = ?";
+            $following_stmt = $conn->prepare($following_query);
+            $following_stmt->bindValue(1, $user_id, PDO::PARAM_INT);
+            $following_stmt->execute();
+            $followed_count = $following_stmt->fetch(PDO::FETCH_ASSOC)['count'];
+        } catch (PDOException $e) {
+            // Table might not exist yet
+            $followed_count = 0;
+        }
+    } else if ($user['role'] === 'coach') {
+        $team_query = "SELECT t.id as team_id, t.name as team_name
+                       FROM teams t 
+                       WHERE t.coach_id = ?";
+        
+        $team_stmt = $conn->prepare($team_query);
+        $team_stmt->bindValue(1, $user_id, PDO::PARAM_INT);
+        $team_stmt->execute();
+        $team = $team_stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($team) {
+            // Get team statistics
+            $stats_query = "SELECT 
+                (SELECT COUNT(*) FROM team_members WHERE team_id = ?) as total_athletes,
+                (SELECT COUNT(*) 
+                 FROM matches 
+                 WHERE (home_team_id = ? AND home_score > away_score) 
+                    OR (away_team_id = ? AND away_score > home_score)) as total_wins,
+                (SELECT COUNT(*) 
+                 FROM matches 
+                 WHERE (home_team_id = ? OR away_team_id = ?) 
+                 AND match_date >= CURDATE()) as upcoming_games";
+            
+            $stats_stmt = $conn->prepare($stats_query);
+            $stats_stmt->bindValue(1, $team['team_id'], PDO::PARAM_INT);
+            $stats_stmt->bindValue(2, $team['team_id'], PDO::PARAM_INT);
+            $stats_stmt->bindValue(3, $team['team_id'], PDO::PARAM_INT);
+            $stats_stmt->bindValue(4, $team['team_id'], PDO::PARAM_INT);
+            $stats_stmt->bindValue(5, $team['team_id'], PDO::PARAM_INT);
+            $stats_stmt->execute();
+            $team_stats = $stats_stmt->fetch(PDO::FETCH_ASSOC);
+            
+            $total_athletes = $team_stats['total_athletes'] ?? 0;
+            $total_wins = $team_stats['total_wins'] ?? 0;
+            $upcoming_games_count = $team_stats['upcoming_games'] ?? 0;
+
+            // Get upcoming games
+            $games_query = "SELECT m.*,
+                                  home.name as home_team_name,
+                                  away.name as away_team_name,
+                                  s.name as sport_name
+                           FROM matches m
+                           JOIN teams home ON m.home_team_id = home.id
+                           JOIN teams away ON m.away_team_id = away.id
+                           JOIN sports s ON m.sport_id = s.id
+                           WHERE (m.home_team_id = ? OR m.away_team_id = ?)
+                           AND m.match_date >= CURDATE()
+                           ORDER BY m.match_date ASC
+                           LIMIT 5";
+            
+            $games_stmt = $conn->prepare($games_query);
+            $games_stmt->bindValue(1, $team['team_id'], PDO::PARAM_INT);
+            $games_stmt->bindValue(2, $team['team_id'], PDO::PARAM_INT);
+            $games_stmt->execute();
+            $upcoming_games = $games_stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+    } else {
+        try {
+            $events_query = "SELECT COUNT(*) as count FROM team_events te 
+                            JOIN events e ON te.event_id = e.id 
+                            WHERE e.start_date >= CURDATE()";
+            $events_result = $conn->query($events_query);
+            $events_count = $events_result->fetch(PDO::FETCH_ASSOC)['count'];
+        } catch (PDOException $e) {
+            // Tables might not exist yet
+            $events_count = 0;
         }
     }
-} catch (Exception $e) {
-    error_log("Error getting followed athletes count: " . $e->getMessage());
+
+    // Get team members count if applicable
+    if (in_array($user['role'], ['coach', 'athlete']) && $athlete_info && isset($athlete_info['team_id'])) {
+        try {
+            $team_query = "SELECT COUNT(*) as count FROM team_members WHERE team_id = ?";
+            $team_stmt = $conn->prepare($team_query);
+            $team_stmt->bindValue(1, $athlete_info['team_id'], PDO::PARAM_INT);
+            $team_stmt->execute();
+            $team_members_count = $team_stmt->fetch(PDO::FETCH_ASSOC)['count'];
+        } catch (PDOException $e) {
+            // Table might not exist yet
+            $team_members_count = 0;
+        }
+    }
+} catch (PDOException $e) {
+    // Log the error but don't expose it to users
+    error_log("Dashboard error: " . $e->getMessage());
 }
 
 ?>
@@ -419,9 +511,6 @@ try {
                                                 <?php echo htmlspecialchars($game['home_team_name']); ?> vs 
                                                 <?php echo htmlspecialchars($game['away_team_name']); ?>
                                             </div>
-                                            <div class="game-venue">
-                                                <?php echo htmlspecialchars($game['venue_name']); ?>
-                                            </div>
                                         </div>
                                     <?php endforeach; ?>
                                 </div>
@@ -500,7 +589,7 @@ try {
                                         <p><strong>Sport:</strong> <?php echo htmlspecialchars($athlete_info['primary_sport'] ?? 'Not set'); ?></p>
                                         <p><strong>Team:</strong> <?php echo htmlspecialchars($athlete_info['team_name'] ?? 'Not assigned'); ?></p>
                                         <p><strong>Position:</strong> <?php echo htmlspecialchars($athlete_info['position_name'] ?? 'Not set'); ?></p>
-                                        <p><strong>Height:</strong> <?php echo formatHeight($athlete_info['height'] ?? null); ?></p>
+                                        <p><strong>Height:</strong> <?php echo formatHeight($athlete_info['height_feet'] ?? null, $athlete_info['height_inches'] ?? null); ?></p>
                                         <p><strong>Weight:</strong> <?php echo $athlete_info['weight'] ? $athlete_info['weight'] . ' lbs' : 'Not set'; ?></p>
                                     </div>
                                 </div>
@@ -520,12 +609,11 @@ try {
                                                     <span class="game-time"><?php echo date('h:i A', strtotime($game['match_date'])); ?></span>
                                                 </div>
                                                 <div class="teams">
-                                                    <span class="team home"><?php echo htmlspecialchars($game['home_team_name']); ?></span>
+                                                    <span class="team home"><?php echo htmlspecialchars($game['home_team'] ?? 'TBD'); ?></span>
                                                     <span class="vs">vs</span>
-                                                    <span class="team away"><?php echo htmlspecialchars($game['away_team_name']); ?></span>
+                                                    <span class="team away"><?php echo htmlspecialchars($game['away_team'] ?? 'TBD'); ?></span>
                                                 </div>
                                                 <div class="game-details">
-                                                    <span class="venue"><i class="bi bi-geo-alt"></i> <?php echo htmlspecialchars($game['venue_name'] ?? 'TBD'); ?></span>
                                                     <span class="sport"><i class="bi bi-trophy"></i> <?php echo htmlspecialchars($game['sport_name']); ?></span>
                                                 </div>
                                             </div>
@@ -548,11 +636,11 @@ try {
                                         <i class="bi bi-chat-dots"></i>
                                         Team Messages
                                     </a>
-                                    <a href="team_stats.php" class="action-btn">
+                                    <a href="player_stats.php" class="action-btn">
                                         <i class="bi bi-graph-up"></i>
                                         View Stats
                                     </a>
-                                    <a href="profile.php" class="action-btn">
+                                    <a href="edit_profile.php" class="action-btn">
                                         <i class="bi bi-person"></i>
                                         Edit Profile
                                     </a>
@@ -584,16 +672,16 @@ try {
                                         s.name as sport_name
                                     FROM fan_followed_athletes f
                                     JOIN users u ON f.athlete_id = u.id
-                                    LEFT JOIN team_members tm ON u.id = tm.user_id
+                                    LEFT JOIN team_members tm ON u.id = tm.athlete_id
                                     LEFT JOIN teams t ON tm.team_id = t.id
                                     LEFT JOIN sports s ON t.sport_id = s.id
                                     WHERE f.fan_id = ?
                                     ORDER BY u.last_name, u.first_name";
                                     
                                     $followed_stmt = $conn->prepare($followed_query);
-                                    $followed_stmt->bind_param("i", $user_id);
+                                    $followed_stmt->bindValue(1, $user_id, PDO::PARAM_INT);
                                     $followed_stmt->execute();
-                                    $followed_athletes = $followed_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+                                    $followed_athletes = $followed_stmt->fetchAll(PDO::FETCH_ASSOC);
                                     ?>
 
                                     <?php if (!empty($followed_athletes)): ?>
@@ -626,25 +714,25 @@ try {
                                 </h2>
                                 <?php
                                 // Get upcoming games for followed athletes' teams
-                                $games_query = "SELECT DISTINCT m.*, 
-                                    t1.name as home_team_name,
-                                    t2.name as away_team_name,
+                                $games_query = "SELECT DISTINCT 
+                                    m.*,
+                                    t1.name as home_team,
+                                    t2.name as away_team,
                                     s.name as sport_name
                                 FROM matches m
                                 JOIN teams t1 ON m.home_team_id = t1.id
                                 JOIN teams t2 ON m.away_team_id = t2.id
                                 JOIN sports s ON m.sport_id = s.id
                                 JOIN team_members tm ON (tm.team_id = t1.id OR tm.team_id = t2.id)
-                                JOIN fan_followed_athletes f ON tm.user_id = f.athlete_id
-                                WHERE f.fan_id = ?
-                                AND m.match_date >= CURDATE()
+                                JOIN fan_followed_athletes f ON tm.athlete_id = f.athlete_id
+                                WHERE f.fan_id = ? AND m.match_date >= CURDATE()
                                 ORDER BY m.match_date ASC
                                 LIMIT 5";
                                 
                                 $games_stmt = $conn->prepare($games_query);
-                                $games_stmt->bind_param("i", $user_id);
+                                $games_stmt->bindValue(1, $user_id, PDO::PARAM_INT);
                                 $games_stmt->execute();
-                                $upcoming_games = $games_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+                                $upcoming_games = $games_stmt->fetchAll(PDO::FETCH_ASSOC);
                                 ?>
 
                                 <?php if (!empty($upcoming_games)): ?>
@@ -656,12 +744,11 @@ try {
                                                     <span class="game-time"><?php echo date('h:i A', strtotime($game['match_date'])); ?></span>
                                                 </div>
                                                 <div class="teams">
-                                                    <span class="team home"><?php echo htmlspecialchars($game['home_team_name']); ?></span>
+                                                    <span class="team home"><?php echo htmlspecialchars($game['home_team'] ?? 'TBD'); ?></span>
                                                     <span class="vs">vs</span>
-                                                    <span class="team away"><?php echo htmlspecialchars($game['away_team_name']); ?></span>
+                                                    <span class="team away"><?php echo htmlspecialchars($game['away_team'] ?? 'TBD'); ?></span>
                                                 </div>
                                                 <div class="game-details">
-                                                    <span class="venue"><i class="bi bi-geo-alt"></i> <?php echo htmlspecialchars($game['venue'] ?? 'TBD'); ?></span>
                                                     <span class="sport"><i class="bi bi-trophy"></i> <?php echo htmlspecialchars($game['sport_name']); ?></span>
                                                 </div>
                                             </div>
@@ -680,7 +767,7 @@ try {
                             <div class="dashboard-section">
                                 <h2 class="section-title">Quick Actions</h2>
                                 <div class="quick-actions">
-                                    <a href="browse_athletes.php" class="action-btn">
+                                    <a href="search_users.php" class="action-btn">
                                         <i class="bi bi-search"></i>
                                         Find Athletes
                                     </a>

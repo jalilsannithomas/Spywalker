@@ -66,6 +66,6 @@ try {
 } catch (Exception $e) {
     // Rollback transaction on error
     $conn->rollback();
-    header("Location: browse_athletes.php?error=" . urlencode($e->getMessage()));
+    header("Location: search_users.php?error=" . urlencode($e->getMessage()));
 }
 exit();

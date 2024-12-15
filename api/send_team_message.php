@@ -35,38 +35,69 @@ if (!$team_id || !$message) {
 }
 
 try {
+    // Verify this coach has access to this team
+    $team_check = "SELECT id FROM teams WHERE id = :team_id AND coach_id = :coach_id";
+    $team_stmt = $conn->prepare($team_check);
+    $team_stmt->bindParam(':team_id', $team_id, PDO::PARAM_INT);
+    $team_stmt->bindParam(':coach_id', $coach_id, PDO::PARAM_INT);
+    $team_stmt->execute();
+    
+    if (!$team_stmt->fetch()) {
+        error_log("Coach $coach_id attempted to message team $team_id which they don't coach");
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'You are not authorized to message this team']);
+        exit();
+    }
+
     // Start transaction
-    $conn->begin_transaction();
+    $conn->beginTransaction();
     error_log("Started transaction");
 
-    // Get all team members who are athletes (join with users table to check role)
-    $members_query = "SELECT tm.user_id 
+    // Get all team members who are athletes
+    $members_query = "SELECT tm.athlete_id 
                      FROM team_members tm
-                     JOIN users u ON tm.user_id = u.id 
-                     WHERE tm.team_id = ? AND u.role = 'athlete'";
+                     JOIN users u ON tm.athlete_id = u.id 
+                     WHERE tm.team_id = :team_id AND u.role = 'athlete'";
     $members_stmt = $conn->prepare($members_query);
-    $members_stmt->bind_param("i", $team_id);
+    $members_stmt->bindParam(':team_id', $team_id, PDO::PARAM_INT);
     $members_stmt->execute();
-    $members_result = $members_stmt->get_result();
+    $team_members = $members_stmt->fetchAll(PDO::FETCH_COLUMN);
     
-    $member_count = $members_result->num_rows;
+    $member_count = count($team_members);
     error_log("Found $member_count team members to message");
 
+    if ($member_count === 0) {
+        $conn->rollBack();
+        error_log("No team members found for team $team_id");
+        echo json_encode(['success' => false, 'message' => 'No team members found']);
+        exit();
+    }
+
     // Send message to each team member
-    $insert_query = "INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (?, ?, ?, NOW())";
+    $insert_query = "INSERT INTO messages (sender_id, receiver_id, message, created_at) VALUES (:sender_id, :receiver_id, :message, NOW())";
     $insert_stmt = $conn->prepare($insert_query);
     
     $success_count = 0;
-    while ($member = $members_result->fetch_assoc()) {
-        $insert_stmt->bind_param("iis", $coach_id, $member['user_id'], $message);
+    foreach ($team_members as $member_id) {
+        $insert_stmt->bindParam(':sender_id', $coach_id, PDO::PARAM_INT);
+        $insert_stmt->bindParam(':receiver_id', $member_id, PDO::PARAM_INT);
+        $insert_stmt->bindParam(':message', $message, PDO::PARAM_STR);
+        
         if ($insert_stmt->execute()) {
             $success_count++;
         } else {
-            error_log("Failed to send message to user ID: " . $member['user_id'] . " - Error: " . $insert_stmt->error);
+            error_log("Failed to send message to user ID: $member_id - Error: " . print_r($insert_stmt->errorInfo(), true));
         }
     }
 
     error_log("Successfully sent messages to $success_count out of $member_count members");
+
+    if ($success_count === 0) {
+        $conn->rollBack();
+        error_log("Failed to send any messages");
+        echo json_encode(['success' => false, 'message' => 'Failed to send messages to any team members']);
+        exit();
+    }
 
     // Commit transaction
     $conn->commit();
@@ -75,7 +106,9 @@ try {
 
 } catch (Exception $e) {
     // Rollback on error
-    $conn->rollback();
+    if ($conn->inTransaction()) {
+        $conn->rollBack();
+    }
     error_log("Error in send_team_message.php: " . $e->getMessage());
     http_response_code(500);
     echo json_encode(['success' => false, 'message' => 'Failed to send team message: ' . $e->getMessage()]);

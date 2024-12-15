@@ -3,51 +3,61 @@ session_start();
 require_once '../config/db.php';
 
 header('Content-Type: application/json');
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 
-// Check if user is logged in
+// Get POST data
+$receiver_id = isset($_POST['receiver_id']) ? (int)$_POST['receiver_id'] : 0;
+$message = isset($_POST['message']) ? trim($_POST['message']) : '';
+
 if (!isset($_SESSION['user_id'])) {
-    http_response_code(401);
     echo json_encode(['success' => false, 'message' => 'Please log in to send messages']);
     exit;
 }
 
-// Get POST data
-$data = json_decode(file_get_contents('php://input'), true);
-$receiver_id = $data['receiver_id'] ?? null;
-$message = $data['message'] ?? null;
-
-if (!$receiver_id || !$message) {
-    http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Invalid data provided']);
+if (!$receiver_id || empty($message)) {
+    echo json_encode(['success' => false, 'message' => 'Invalid input parameters']);
     exit;
 }
 
 try {
-    // Insert message
-    $query = "INSERT INTO messages (sender_id, receiver_id, message_text) VALUES (?, ?, ?)";
-    $stmt = $conn->prepare($query);
+    // First verify receiver exists
+    $user_check = "SELECT COUNT(*) FROM users WHERE id = :receiver_id";
+    $check_stmt = $conn->prepare($user_check);
+    $check_stmt->bindParam(':receiver_id', $receiver_id, PDO::PARAM_INT);
+    $check_stmt->execute();
     
-    if (!$stmt) {
-        throw new Exception("Failed to prepare statement: " . $conn->error);
+    if ($check_stmt->fetchColumn() == 0) {
+        echo json_encode(['success' => false, 'message' => 'Receiver not found']);
+        exit;
     }
+
+    // Insert the message
+    $sql = "INSERT INTO messages (sender_id, receiver_id, message, is_read, created_at, updated_at) 
+            VALUES (:sender_id, :receiver_id, :message, 0, NOW(), NOW())";
     
-    $stmt->bind_param("iis", $_SESSION['user_id'], $receiver_id, $message);
+    $stmt = $conn->prepare($sql);
+    $stmt->bindParam(':sender_id', $_SESSION['user_id'], PDO::PARAM_INT);
+    $stmt->bindParam(':receiver_id', $receiver_id, PDO::PARAM_INT);
+    $stmt->bindParam(':message', $message, PDO::PARAM_STR);
     
-    if (!$stmt->execute()) {
-        throw new Exception("Failed to send message: " . $stmt->error);
+    if ($stmt->execute()) {
+        $message_id = $conn->lastInsertId();
+        echo json_encode([
+            'success' => true, 
+            'message' => 'Message sent successfully',
+            'message_id' => $message_id,
+            'data' => [
+                'id' => $message_id,
+                'sender_id' => $_SESSION['user_id'],
+                'receiver_id' => $receiver_id,
+                'message' => $message,
+                'created_at' => date('Y-m-d H:i:s')
+            ]
+        ]);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Failed to send message']);
     }
-    
-    echo json_encode([
-        'success' => true,
-        'message' => 'Message sent successfully',
-        'message_id' => $conn->insert_id
-    ]);
-    
 } catch (Exception $e) {
-    error_log("Error sending message: " . $e->getMessage());
-    http_response_code(500);
-    echo json_encode([
-        'success' => false,
-        'message' => 'Failed to send message. Please try again.'
-    ]);
+    echo json_encode(['success' => false, 'message' => 'Error sending message']);
 }

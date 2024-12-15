@@ -3,130 +3,212 @@ session_start();
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-// Debug output directly to page
-echo "<!-- Debug Output -->\n";
-echo "<!-- Session: " . print_r($_SESSION, true) . " -->\n";
-
-// Set up custom error logging
-ini_set('log_errors', 1);
-ini_set('error_log', __DIR__ . '/debug.log');
-error_log("=== New Page Load ===");
-
 require_once 'config/db.php';
 
-// Debug information
-error_log("Session data: " . print_r($_SESSION, true));
+// Debug: Log all session data
+error_log("=== START OF MESSAGE PAGE EXECUTION ===");
+error_log("Full SESSION data: " . print_r($_SESSION, true));
 
 // Check if user is logged in
 if (!isset($_SESSION['user_id'])) {
-    error_log("User not logged in, redirecting to login.php");
-    header("Location: login.php");
+    error_log("No user_id in session. Redirecting to login.");
+    header('Location: login.php');
     exit();
 }
 
 $user_id = $_SESSION['user_id'];
-$role = $_SESSION['role'];
+error_log("Current user_id from session: " . $user_id);
 
-// Debug output
-error_log("Debug - User ID: " . $user_id);
-error_log("Debug - Role: " . $role);
-error_log("Debug - Full Session: " . print_r($_SESSION, true));
+// Initialize variables
+$error_message = '';
+$success_message = '';
+$users = [];
+$messages = [];
+$teams = [];
 
-echo "<!-- User ID: $user_id, Role: $role -->\n";
-
-error_log("User ID: $user_id, Role: $role");
-
-// Get all active users for the message recipient dropdown
 try {
-    $users_sql = "SELECT id, first_name, last_name, role FROM users WHERE is_active = TRUE AND id != ?";
-    $users_stmt = $conn->prepare($users_sql);
-    if (!$users_stmt) {
-        throw new Exception("Failed to prepare users query: " . $conn->error);
+    // Test database connection
+    try {
+        $conn->query("SELECT 1");
+        error_log("Database connection test successful");
+    } catch (PDOException $e) {
+        error_log("Database connection test failed: " . $e->getMessage());
+        throw new Exception("Database connection error");
     }
-    
-    $users_stmt->bind_param("i", $user_id);
-    if (!$users_stmt->execute()) {
-        throw new Exception("Failed to execute users query: " . $users_stmt->error);
+
+    // Get all active users except current user
+    try {
+        $users_sql = "SELECT id, first_name, last_name, role 
+                      FROM users 
+                      WHERE is_active = TRUE AND id != :user_id";
+        $users_stmt = $conn->prepare($users_sql);
+        $users_stmt->bindParam(':user_id', $user_id, PDO::PARAM_INT);
+        $users_stmt->execute();
+        $users = $users_stmt->fetchAll(PDO::FETCH_ASSOC);
+        error_log("Found " . count($users) . " other active users");
+    } catch (PDOException $e) {
+        error_log("Error fetching users: " . $e->getMessage());
+        throw new Exception("Failed to fetch users");
     }
-    
-    $users_result = $users_stmt->get_result();
-    $users = [];
-    while ($user = $users_result->fetch_assoc()) {
-        $users[] = $user;
+
+    // Verify messages table exists
+    try {
+        $table_check = $conn->query("SHOW TABLES LIKE 'messages'");
+        if ($table_check->rowCount() === 0) {
+            error_log("Messages table does not exist!");
+            throw new Exception("Messages table not found");
+        }
+        error_log("Messages table exists");
+
+        // Check table structure
+        $structure = $conn->query("DESCRIBE messages");
+        $columns = $structure->fetchAll(PDO::FETCH_COLUMN);
+        error_log("Messages table columns: " . print_r($columns, true));
+    } catch (PDOException $e) {
+        error_log("Error checking messages table: " . $e->getMessage());
+        throw new Exception("Failed to verify messages table");
     }
+
+    // Get messages with detailed error logging
+    try {
+        error_log("Preparing to fetch messages for user_id: " . $user_id);
+        
+        $messages_sql = "SELECT m.*, 
+                        CONCAT(s.first_name, ' ', s.last_name) as sender_name,
+                        CONCAT(r.first_name, ' ', r.last_name) as receiver_name,
+                        s.role as sender_role,
+                        r.role as receiver_role
+                        FROM messages m
+                        JOIN users s ON m.sender_id = s.id
+                        JOIN users r ON m.receiver_id = r.id
+                        WHERE m.sender_id = :user_id1 
+                        OR m.receiver_id = :user_id2
+                        ORDER BY m.created_at DESC";
+
+        error_log("Messages SQL query: " . $messages_sql);
+        
+        $messages_stmt = $conn->prepare($messages_sql);
+        if (!$messages_stmt) {
+            error_log("Failed to prepare messages statement");
+            throw new Exception("Failed to prepare messages query");
+        }
+
+        $messages_stmt->bindParam(':user_id1', $user_id, PDO::PARAM_INT);
+        $messages_stmt->bindParam(':user_id2', $user_id, PDO::PARAM_INT);
+        
+        error_log("About to execute messages query");
+        if (!$messages_stmt->execute()) {
+            $error = $messages_stmt->errorInfo();
+            error_log("Query execution failed: " . print_r($error, true));
+            throw new Exception("Failed to execute messages query");
+        }
+
+        $messages = $messages_stmt->fetchAll(PDO::FETCH_ASSOC);
+        error_log("Messages query successful. Found " . count($messages) . " messages");
+        error_log("Raw messages data: " . print_r($messages, true));
+
+    } catch (PDOException $e) {
+        error_log("Error fetching messages: " . $e->getMessage());
+        error_log("Stack trace: " . $e->getTraceAsString());
+        throw new Exception("Failed to fetch messages");
+    }
+
+    // If user is a coach, get their teams
+    if ($_SESSION['role'] === 'coach') {
+        try {
+            $teams_sql = "SELECT t.*, s.name as sport_name
+                         FROM teams t
+                         JOIN sports s ON t.sport_id = s.id
+                         WHERE t.coach_id = :coach_id";
+            $teams_stmt = $conn->prepare($teams_sql);
+            $teams_stmt->bindParam(':coach_id', $user_id, PDO::PARAM_INT);
+            $teams_stmt->execute();
+            $teams = $teams_stmt->fetchAll(PDO::FETCH_ASSOC);
+            error_log("Found " . count($teams) . " teams for coach");
+        } catch (PDOException $e) {
+            error_log("Error fetching teams: " . $e->getMessage());
+            throw new Exception("Failed to fetch teams");
+        }
+    }
+
 } catch (Exception $e) {
-    error_log("Error fetching users: " . $e->getMessage());
-    $users = [];
+    error_log("Main try-catch block error: " . $e->getMessage());
+    $error_message = "An error occurred: " . $e->getMessage();
 }
 
-// Get messages grouped by conversation
-try {
-    $sql = "WITH LastMessages AS (
-                SELECT 
-                    CASE 
-                        WHEN sender_id = ? THEN receiver_id
-                        ELSE sender_id
-                    END as other_user_id,
-                    MAX(id) as last_message_id
-                FROM messages 
-                WHERE sender_id = ? OR receiver_id = ?
-                GROUP BY other_user_id
-            )
-            SELECT 
-                m.*,  
-                lm.other_user_id,
-                CASE 
-                    WHEN m.sender_id = ? THEN CONCAT(r.first_name, ' ', r.last_name)
-                    ELSE CONCAT(s.first_name, ' ', s.last_name)
-                END as other_party_name,
-                CASE 
-                    WHEN m.sender_id = ? THEN r.role
-                    ELSE s.role
-                END as other_party_role,
-                m.message_text,
-                m.created_at,
-                m.read_at,
-                m.sender_id,
-                m.receiver_id,  
-                (
-                    SELECT COUNT(*) 
-                    FROM messages 
-                    WHERE receiver_id = ? 
-                    AND read_at IS NULL 
-                    AND sender_id = lm.other_user_id
-                ) as unread_count
-            FROM LastMessages lm
-            JOIN messages m ON m.id = lm.last_message_id
-            LEFT JOIN users s ON m.sender_id = s.id
-            LEFT JOIN users r ON m.receiver_id = r.id
-            ORDER BY m.created_at DESC";
+error_log("=== END OF PHP PROCESSING ===");
 
-    $stmt = $conn->prepare($sql);
-    if (!$stmt) {
-        throw new Exception("Failed to prepare messages query: " . $conn->error);
+// Handle sending new message
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    try {
+        if ($_POST['action'] === 'send_message') {
+            $receiver_id = $_POST['receiver_id'];
+            $message_text = trim($_POST['message']);
+            
+            if (empty($message_text)) {
+                throw new Exception("Message cannot be empty");
+            }
+            
+            $insert_sql = "INSERT INTO messages (sender_id, receiver_id, message, created_at) 
+                          VALUES (:sender_id, :receiver_id, :message, NOW())";
+            $insert_stmt = $conn->prepare($insert_sql);
+            $insert_stmt->bindParam(':sender_id', $user_id, PDO::PARAM_INT);
+            $insert_stmt->bindParam(':receiver_id', $receiver_id, PDO::PARAM_INT);
+            $insert_stmt->bindParam(':message', $message_text, PDO::PARAM_STR);
+            
+            if ($insert_stmt->execute()) {
+                $success_message = "Message sent successfully!";
+                // Refresh messages list
+                $messages_stmt->execute();
+                $messages = $messages_stmt->fetchAll(PDO::FETCH_ASSOC);
+            } else {
+                throw new Exception("Failed to send message");
+            }
+        } elseif ($_POST['action'] === 'send_team_message' && $_SESSION['role'] === 'coach') {
+            $team_id = $_POST['team_id'];
+            $message_text = trim($_POST['team_message']);
+            
+            if (empty($message_text)) {
+                throw new Exception("Message cannot be empty");
+            }
+            
+            // Get all team members
+            $members_sql = "SELECT user_id FROM team_members WHERE team_id = :team_id";
+            $members_stmt = $conn->prepare($members_sql);
+            $members_stmt->bindParam(':team_id', $team_id, PDO::PARAM_INT);
+            $members_stmt->execute();
+            $team_members = $members_stmt->fetchAll(PDO::FETCH_COLUMN);
+            
+            // Start transaction for sending multiple messages
+            $conn->beginTransaction();
+            
+            try {
+                $insert_sql = "INSERT INTO messages (sender_id, receiver_id, message, created_at) 
+                              VALUES (:sender_id, :receiver_id, :message, NOW())";
+                $insert_stmt = $conn->prepare($insert_sql);
+                
+                foreach ($team_members as $member_id) {
+                    $insert_stmt->bindParam(':sender_id', $user_id, PDO::PARAM_INT);
+                    $insert_stmt->bindParam(':receiver_id', $member_id, PDO::PARAM_INT);
+                    $insert_stmt->bindParam(':message', $message_text, PDO::PARAM_STR);
+                    $insert_stmt->execute();
+                }
+                
+                $conn->commit();
+                $success_message = "Team message sent successfully!";
+                
+                // Refresh messages list
+                $messages_stmt->execute();
+                $messages = $messages_stmt->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Exception $e) {
+                $conn->rollBack();
+                throw $e;
+            }
+        }
+    } catch (Exception $e) {
+        error_log("Error sending message: " . $e->getMessage());
+        $error_message = $e->getMessage();
     }
-    
-    $stmt->bind_param("iiiiii", 
-        $user_id, // for CASE in WITH clause
-        $user_id, // for sender_id in WHERE
-        $user_id, // for receiver_id in WHERE
-        $user_id, // for first CASE in main SELECT
-        $user_id, // for second CASE in main SELECT
-        $user_id  // for unread count subquery
-    );
-    
-    if (!$stmt->execute()) {
-        throw new Exception("Failed to execute messages query: " . $stmt->error);
-    }
-    
-    $result = $stmt->get_result();
-    $messages = [];
-    while ($message = $result->fetch_assoc()) {
-        $messages[] = $message;
-    }
-} catch (Exception $e) {
-    error_log("Error fetching messages: " . $e->getMessage());
-    $messages = [];
 }
 ?>
 
@@ -509,71 +591,78 @@ try {
                         </button>
                         <?php 
                         error_log("Checking team message button visibility");
-                        error_log("Current role: " . $role);
+                        error_log("Current role: " . $_SESSION['role']);
                         
-                        if ($role === 'coach'): // Use lowercase to match database
+                        if ($_SESSION['role'] === 'coach'): // Use lowercase to match database
                             error_log("Showing team message button");
                         ?>
                             <button type="button" class="btn btn-primary team-message-btn" data-bs-toggle="modal" data-bs-target="#teamMessageModal">
                                 <i class="bi bi-people-fill"></i> Team Message
                             </button>
                         <?php else: 
-                            error_log("Not showing team message button - user role is: " . $role);
+                            error_log("Not showing team message button - user role is: " . $_SESSION['role']);
                         endif; ?>
                     </div>
                 </div>
             </div>
 
             <div class="messages-list">
+                <?php if (!empty($error_message)): ?>
+                    <div class="alert alert-danger">
+                        <?php echo htmlspecialchars($error_message); ?>
+                    </div>
+                <?php endif; ?>
+                
                 <?php if (empty($messages)): ?>
+                    <?php error_log("No messages found to display"); ?>
                     <div class="text-center text-gold">
                         <p>No messages yet. Start a conversation!</p>
                     </div>
                 <?php else: ?>
+                    <?php error_log("Starting to display " . count($messages) . " messages"); ?>
                     <?php foreach ($messages as $message): ?>
-                        <a href="chat.php?user_id=<?php echo htmlspecialchars($message['other_user_id']); ?>" 
+                        <?php 
+                        error_log("Processing message ID " . $message['id']);
+                        error_log("Message details: " . print_r($message, true));
+                        
+                        // Determine the other user's ID and details
+                        $is_sender = ($message['sender_id'] == $user_id);
+                        $chat_with_id = $is_sender ? $message['receiver_id'] : $message['sender_id'];
+                        $chat_with_name = $is_sender ? $message['receiver_name'] : $message['sender_name'];
+                        $chat_with_role = $is_sender ? $message['receiver_role'] : $message['sender_role'];
+                        
+                        error_log("Chat partner details - ID: $chat_with_id, Name: $chat_with_name, Role: $chat_with_role");
+                        ?>
+                        <a href="chat.php?user_id=<?php echo htmlspecialchars($chat_with_id); ?>" 
                            class="message-card text-decoration-none">
                             <div class="card mb-3">
                                 <div class="card-body">
                                     <div class="d-flex justify-content-between align-items-start">
                                         <div>
                                             <h5 class="card-title text-gold mb-1">
-                                                <?php echo htmlspecialchars($message['other_party_name']); ?>
-                                                <span class="badge bg-secondary"><?php echo htmlspecialchars($message['other_party_role']); ?></span>
+                                                <?php echo htmlspecialchars($chat_with_name); ?>
+                                                <span class="badge bg-secondary"><?php echo htmlspecialchars($chat_with_role); ?></span>
                                             </h5>
                                             <p class="card-text text-light mb-1">
                                                 <?php 
-                                                if ($message['sender_id'] == $user_id) {
-                                                    echo "You: ";
+                                                $preview = htmlspecialchars(substr($message['message'], 0, 50));
+                                                if (strlen($message['message']) > 50) {
+                                                    $preview .= '...';
                                                 }
-                                                echo htmlspecialchars(substr($message['message_text'], 0, 50)) . 
-                                                     (strlen($message['message_text']) > 50 ? '...' : ''); 
+                                                echo $preview;
                                                 ?>
                                             </p>
-                                        </div>
-                                        <div class="text-end">
-                                            <small class="text-gold">
-                                                <?php echo date('M j, g:i A', strtotime($message['created_at'])); ?>
+                                            <small class="text-muted">
+                                                <?php echo date('M j, Y g:i A', strtotime($message['created_at'])); ?>
                                             </small>
-                                            <?php if ($message['unread_count'] > 0): ?>
-                                                <div class="badge bg-danger rounded-pill">
-                                                    <?php echo $message['unread_count']; ?>
-                                                </div>
-                                            <?php endif; ?>
                                         </div>
+                                        <?php if (!$message['is_read'] && $message['receiver_id'] == $user_id): ?>
+                                            <span class="badge bg-primary">New</span>
+                                        <?php endif; ?>
                                     </div>
                                 </div>
                             </div>
                         </a>
-                        <?php 
-                        // Mark message as read if user is the receiver
-                        if ($message['sender_id'] != $user_id) {  // If we're not the sender, we're the receiver
-                            $update_query = "UPDATE messages SET read_at = NOW() WHERE id = ? AND receiver_id = ?";
-                            $update_stmt = $conn->prepare($update_query);
-                            $update_stmt->bind_param("ii", $message['id'], $user_id);
-                            $update_stmt->execute();
-                        }
-                        ?>
                     <?php endforeach; ?>
                 <?php endif; ?>
             </div>
@@ -616,7 +705,7 @@ try {
     </div>
 
     <!-- Team Message Modal -->
-    <?php if ($role === 'coach'): // Use lowercase to match database
+    <?php if ($_SESSION['role'] === 'coach'): // Use lowercase to match database
         error_log("Rendering team message modal for coach");
     ?>
     <div class="modal fade" id="teamMessageModal" tabindex="-1" aria-labelledby="teamMessageModalLabel" aria-hidden="true">
@@ -632,26 +721,26 @@ try {
                         // Get coach's teams by checking coach_id in teams table
                         $team_query = "SELECT DISTINCT t.id, t.name 
                                      FROM teams t 
-                                     WHERE t.coach_id = ?";
+                                     WHERE t.coach_id = :coach_id";
                         $team_stmt = $conn->prepare($team_query);
-                        $team_stmt->bind_param("i", $_SESSION['user_id']);
+                        $team_stmt->bindParam(':coach_id', $_SESSION['user_id'], PDO::PARAM_INT);
                         $team_stmt->execute();
-                        $team_result = $team_stmt->get_result();
+                        $team_result = $team_stmt->fetchAll(PDO::FETCH_ASSOC);
                         
                         error_log("Team query executed for user_id: " . $_SESSION['user_id']);
-                        error_log("Number of teams found: " . $team_result->num_rows);
+                        error_log("Number of teams found: " . count($team_result));
                         error_log("SQL Query: " . $team_query);
                         
-                        if ($team_result->num_rows == 0) {
+                        if (count($team_result) == 0) {
                             error_log("No teams found for coach with ID: " . $_SESSION['user_id']);
                         }
                         ?>
                         <div class="mb-3">
                             <label for="team" class="form-label">Team</label>
                             <select class="form-select" id="team" name="team" required>
-                                <?php while ($team = $team_result->fetch_assoc()): ?>
+                                <?php foreach ($team_result as $team): ?>
                                     <option value="<?php echo $team['id']; ?>"><?php echo htmlspecialchars($team['name']); ?></option>
-                                <?php endwhile; ?>
+                                <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="mb-3">
@@ -766,6 +855,7 @@ try {
 
             // Handle new message form submission
             document.getElementById('sendMessage').addEventListener('click', function(e) {
+                e.preventDefault(); // Prevent default form submission
                 console.log('Send message clicked');
                 const receiverId = document.getElementById('receiver_id').value;
                 const message = document.getElementById('message').value;
@@ -789,6 +879,9 @@ try {
                     })
                 })
                 .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
                     console.log('Response received:', response);
                     return response.json();
                 })
@@ -799,10 +892,16 @@ try {
                         if (modalInstance) {
                             console.log('Closing modal...');
                             modalInstance.hide();
+                            // Clear the form
+                            document.getElementById('message').value = '';
+                            // Reload the page after a short delay
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 500);
                         } else {
                             console.error('Could not get modal instance');
+                            window.location.reload();
                         }
-                        location.reload();
                     } else {
                         alert('Error sending message: ' + data.message);
                     }

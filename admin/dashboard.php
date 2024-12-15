@@ -8,44 +8,48 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
     exit();
 }
 
-// Get statistics
-$stats = [];
+// Initialize variables
+$stats = [
+    'users' => [],
+    'total_teams' => 0,
+    'total_matches' => 0
+];
+$recent_users = [];
+$error = null;
 
-// Total users by role
-$sql = "SELECT role, COUNT(*) as count FROM users GROUP BY role";
-$result = $conn->query($sql);
-while ($row = $result->fetch_assoc()) {
-    $stats['users'][$row['role']] = $row['count'];
+try {
+    // Total users by role
+    $sql = "SELECT role, COUNT(*) as count FROM users GROUP BY role";
+    $stmt = $conn->prepare($sql);
+    $stmt->execute();
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $stats['users'][$row['role']] = $row['count'];
+    }
+
+    // Total fantasy teams
+    $sql = "SELECT COUNT(*) as count FROM fantasy_teams";
+    $stmt = $conn->prepare($sql);
+    $stmt->execute();
+    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+    $stats['total_teams'] = $result['count'] ?? 0;
+
+    // Recent user registrations
+    $sql = "SELECT id, first_name, last_name, email, role, created_at 
+            FROM users 
+            ORDER BY created_at DESC 
+            LIMIT 5";
+    $stmt = $conn->prepare($sql);
+    $stmt->execute();
+    $recent_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if ($recent_users === false) {
+        $recent_users = []; // Reset to empty array if query fails
+    }
+
+} catch (PDOException $e) {
+    error_log("Admin Dashboard Error: " . $e->getMessage());
+    $error = "An error occurred while loading the dashboard.";
+    $recent_users = []; // Ensure it's an empty array on error
 }
-
-// Total teams
-$sql = "SELECT COUNT(*) as count FROM teams";
-$result = $conn->query($sql);
-$stats['total_teams'] = $result->fetch_assoc()['count'];
-
-// Total matches
-$sql = "SELECT COUNT(*) as count FROM matches";
-$result = $conn->query($sql);
-$stats['total_matches'] = $result->fetch_assoc()['count'];
-
-// Recent user registrations
-$sql = "SELECT username, email, role, DATE_FORMAT(created_at, '%M %d, %Y') as joined_date 
-        FROM users 
-        ORDER BY created_at DESC 
-        LIMIT 5";
-$recent_users = $conn->query($sql)->fetch_all(MYSQLI_ASSOC);
-
-// Recent matches
-$sql = "SELECT m.*, 
-        ht.name as home_team_name, 
-        at.name as away_team_name,
-        DATE_FORMAT(m.match_date, '%M %d, %Y') as formatted_date
-        FROM matches m
-        JOIN teams ht ON m.home_team_id = ht.id
-        JOIN teams at ON m.away_team_id = at.id
-        ORDER BY m.match_date DESC
-        LIMIT 5";
-$recent_matches = $conn->query($sql)->fetch_all(MYSQLI_ASSOC);
 ?>
 
 <!DOCTYPE html>
@@ -55,142 +59,119 @@ $recent_matches = $conn->query($sql)->fetch_all(MYSQLI_ASSOC);
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
-    <link href="../assets/css/style.css" rel="stylesheet">
-    <link href="../assets/css/admin-dashboard.css" rel="stylesheet">
     <style>
         body {
-            font-family: 'Press Start 2P', sans-serif;
             background-color: #2C1810;
+            font-family: 'Press Start 2P', cursive;
             color: #D4AF37;
-        }
-
-        .container {
-            background-color: #2C1810;
-            padding: 2rem;
+            padding: 20px;
         }
 
         .dashboard-title {
             color: #D4AF37;
             text-align: center;
-            margin-bottom: 2rem;
-            font-size: 2rem;
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 1rem;
+            margin: 30px 0;
+            text-shadow: 2px 2px #000;
         }
 
         .stat-card {
-            background-color: #3C2415;
-            border: 2px solid #D4AF37;
-            border-radius: 8px;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            background: rgba(36, 20, 9, 0.9);
+            border: 4px solid #D4AF37;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            transition: transform 0.3s ease;
         }
 
-        .stat-number {
-            font-size: 2.5rem;
-            font-weight: bold;
-            color: #D4AF37;
+        .stat-card:hover {
+            transform: translateY(-5px);
         }
 
-        .stat-label {
+        .stats-title {
             color: #D4AF37;
-            font-size: 0.9rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-top: 0.5rem;
+            font-size: 1em;
+            margin-bottom: 15px;
+        }
+
+        .stats-number {
+            color: #FFD700;
+            font-size: 2em;
+            margin-bottom: 0;
         }
 
         .quick-actions {
-            margin-top: 2rem;
+            background: rgba(36, 20, 9, 0.9);
+            border: 4px solid #D4AF37;
+            border-radius: 15px;
+            padding: 20px;
+            margin: 30px 0;
         }
 
         .quick-actions-title {
             color: #D4AF37;
-            font-size: 1.5rem;
-            margin-bottom: 1rem;
+            font-size: 1.2em;
+            margin-bottom: 20px;
+            text-transform: uppercase;
         }
 
-        .action-buttons {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 1rem;
-        }
-
-        .action-btn {
-            background-color: #2C1810;
-            border: 2px solid #D4AF37;
-            color: #D4AF37;
-            padding: 1rem 2rem;
-            font-size: 1rem;
-            text-decoration: none;
+        .btn-action {
+            background: #D4AF37;
+            border: none;
+            color: #241409;
+            padding: 15px 30px;
+            margin: 10px;
+            font-size: 0.8em;
             transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
         }
 
-        .action-btn:hover {
-            background-color: #D4AF37;
-            color: #2C1810;
+        .btn-action:hover {
+            background: #FFD700;
             transform: translateY(-2px);
+            color: #241409;
         }
 
-        .data-section {
-            background-color: #3C2415;
-            border: 2px solid #D4AF37;
-            border-radius: 8px;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        .recent-section {
+            background: rgba(36, 20, 9, 0.9);
+            border: 4px solid #D4AF37;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 30px;
         }
 
         .section-title {
             color: #D4AF37;
-            font-size: 1.5rem;
-            margin-bottom: 1rem;
-        }
-
-        .pixel-table {
-            color: #D4AF37;
-            background-color: #3C2415;
-            border-collapse: collapse;
-        }
-
-        .pixel-table thead th {
-            background-color: #2C1810;
-            color: #D4AF37;
-            border: 1px solid #D4AF37;
-            border-bottom: 2px solid #D4AF37;
-        }
-
-        .pixel-table tbody td {
-            color: #D4AF37;
-            border: 1px solid rgba(212, 175, 55, 0.2);
-            background-color: #3C2415;
-        }
-
-        .pixel-table tbody tr:hover td {
-            background-color: #4D2F1C;
-        }
-
-        .role-badge {
-            background-color: #2C1810;
-            color: #D4AF37;
-            border: 1px solid #D4AF37;
-            padding: 0.5rem 1rem;
-            font-size: 0.9rem;
+            font-size: 1.2em;
+            margin-bottom: 20px;
             text-transform: uppercase;
-            letter-spacing: 1px;
         }
 
-        .role-badge.athlete {
-            background-color: #3C2415;
+        .table {
+            color: #D4AF37;
+            margin: 0;
         }
 
-        .role-badge.coach {
-            background-color: #4D2F1C;
+        .table th {
+            border-color: #D4AF37;
+            font-size: 0.8em;
+            padding: 15px;
+            text-transform: uppercase;
+        }
+
+        .table td {
+            border-color: #D4AF37;
+            font-size: 0.7em;
+            padding: 15px;
+        }
+
+        .alert {
+            background: rgba(220, 53, 69, 0.9);
+            border: 2px solid #dc3545;
+            color: #fff;
+            margin-bottom: 20px;
+            font-size: 0.8em;
+            padding: 15px;
         }
     </style>
 </head>
@@ -200,106 +181,113 @@ $recent_matches = $conn->query($sql)->fetch_all(MYSQLI_ASSOC);
     <div class="container">
         <h1 class="dashboard-title">ADMIN DASHBOARD</h1>
 
-        <!-- Stats Grid -->
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-number"><?php echo $stats['users']['athlete'] ?? 0; ?></div>
-                <div class="stat-label">ATHLETES</div>
+        <?php if ($error): ?>
+            <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
+        <?php endif; ?>
+
+        <!-- Stats Cards -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <h3><?php echo $stats['users']['athlete'] ?? 0; ?></h3>
+                    <p>ATHLETES</p>
+                </div>
             </div>
-            <div class="stat-card">
-                <div class="stat-number"><?php echo $stats['users']['coach'] ?? 0; ?></div>
-                <div class="stat-label">COACHES</div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <h3><?php echo $stats['users']['coach'] ?? 0; ?></h3>
+                    <p>COACHES</p>
+                </div>
             </div>
-            <div class="stat-card">
-                <div class="stat-number"><?php echo $stats['total_teams']; ?></div>
-                <div class="stat-label">TEAMS</div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <h3><?php echo $stats['total_teams']; ?></h3>
+                    <p>TEAMS</p>
+                </div>
             </div>
-            <div class="stat-card">
-                <div class="stat-number"><?php echo $stats['total_matches']; ?></div>
-                <div class="stat-label">MATCHES</div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <h3><?php echo $stats['total_matches']; ?></h3>
+                    <p>MATCHES</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Users Section -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="recent-section">
+                    <h2>Recent User Registrations</h2>
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Email</th>
+                                    <th>Role</th>
+                                    <th>Joined</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            <?php if (!empty($recent_users)): ?>
+                                <?php foreach ($recent_users as $user): ?>
+                                    <tr>
+                                        <td><?php echo htmlspecialchars($user['first_name'] . ' ' . $user['last_name']); ?></td>
+                                        <td><?php echo htmlspecialchars($user['email']); ?></td>
+                                        <td><?php echo htmlspecialchars($user['role']); ?></td>
+                                        <td><?php echo htmlspecialchars(date('Y-m-d', strtotime($user['created_at']))); ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <tr>
+                                    <td colspan="4" class="text-center">No recent registrations found</td>
+                                </tr>
+                            <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Matches Section -->
+        <div class="recent-section mb-4">
+            <h2>Recent Matches</h2>
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Teams</th>
+                            <th>Score</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="4" class="text-center">No matches available. Match functionality coming soon!</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
 
         <!-- Quick Actions -->
         <div class="quick-actions">
-            <h2 class="quick-actions-title">QUICK ACTIONS</h2>
-            <div class="action-buttons">
-                <a href="manage_users.php" class="action-btn">
-                    <i class="bi bi-people-fill"></i>
-                    MANAGE USERS
+            <h3 class="quick-actions-title">Quick Actions</h3>
+            <div class="d-flex flex-wrap justify-content-center">
+                <a href="manage_users.php" class="btn-action">
+                    <i class="bi bi-people"></i> Manage Users
                 </a>
-                <a href="manage_teams.php" class="action-btn">
-                    <i class="bi bi-trophy-fill"></i>
-                    MANAGE TEAMS
+                <a href="manage_teams.php" class="btn-action">
+                    <i class="bi bi-trophy"></i> Manage Teams
                 </a>
-                <a href="manage_matches.php" class="action-btn">
-                    <i class="bi bi-calendar-event-fill"></i>
-                    MANAGE MATCHES
+                <a href="manage_matches.php" class="btn-action">
+                    <i class="bi bi-controller"></i> Manage Matches
                 </a>
-                <a href="manage_sports.php" class="action-btn">
-                    <i class="bi bi-dribbble"></i>
-                    MANAGE SPORTS
+                <a href="manage_sports.php" class="btn-action">
+                    <i class="bi bi-dribbble"></i> Manage Sports
                 </a>
-            </div>
-        </div>
-
-        <div class="row">
-            <!-- Recent Users -->
-            <div class="col-md-6">
-                <div class="data-section">
-                    <h2 class="section-title">RECENT USERS</h2>
-                    <div class="table-responsive">
-                        <table class="pixel-table">
-                            <thead>
-                                <tr>
-                                    <th>USERNAME</th>
-                                    <th>ROLE</th>
-                                    <th>JOINED</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($recent_users as $user): ?>
-                                <tr>
-                                    <td><?php echo htmlspecialchars($user['username']); ?></td>
-                                    <td>
-                                        <span class="role-badge <?php echo strtolower($user['role']); ?>">
-                                            <?php echo htmlspecialchars($user['role']); ?>
-                                        </span>
-                                    </td>
-                                    <td><?php echo htmlspecialchars($user['joined_date']); ?></td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Recent Matches -->
-            <div class="col-md-6">
-                <div class="data-section">
-                    <h2 class="section-title">RECENT MATCHES</h2>
-                    <div class="table-responsive">
-                        <table class="pixel-table">
-                            <thead>
-                                <tr>
-                                    <th>DATE</th>
-                                    <th>MATCH</th>
-                                    <th>SCORE</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($recent_matches as $match): ?>
-                                <tr>
-                                    <td><?php echo htmlspecialchars($match['formatted_date']); ?></td>
-                                    <td><?php echo htmlspecialchars($match['home_team_name'] . ' vs ' . $match['away_team_name']); ?></td>
-                                    <td><?php echo isset($match['home_score']) ? $match['home_score'] . ' - ' . $match['away_score'] : 'TBD'; ?></td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
             </div>
         </div>
     </div>

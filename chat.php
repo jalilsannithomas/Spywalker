@@ -1,9 +1,16 @@
 <?php
 session_start();
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 require_once 'config/db.php';
+
+error_log("=== START OF CHAT PAGE EXECUTION ===");
+error_log("Full SESSION data: " . print_r($_SESSION, true));
+error_log("GET parameters: " . print_r($_GET, true));
 
 // Check if user is logged in
 if (!isset($_SESSION['user_id'])) {
+    error_log("No user_id in session. Redirecting to login.");
     header("Location: login.php");
     exit();
 }
@@ -12,24 +19,28 @@ if (!isset($_SESSION['user_id'])) {
 $user_id = $_SESSION['user_id'];
 $other_user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : 0;
 
+error_log("Current user_id: $user_id, Other user_id: $other_user_id");
+
 if (!$other_user_id) {
+    error_log("No other_user_id provided. Redirecting to messages.");
     header("Location: messages.php");
     exit();
 }
 
 // Get other user's info
 try {
-    $user_sql = "SELECT first_name, last_name, role FROM users WHERE id = ?";
+    $user_sql = "SELECT first_name, last_name, role FROM users WHERE id = :user_id";
     $user_stmt = $conn->prepare($user_sql);
-    $user_stmt->bind_param("i", $other_user_id);
+    $user_stmt->bindParam(':user_id', $other_user_id, PDO::PARAM_INT);
     $user_stmt->execute();
-    $other_user = $user_stmt->get_result()->fetch_assoc();
+    $other_user = $user_stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$other_user) {
+        error_log("No user found with ID: " . $other_user_id);
         header("Location: messages.php");
         exit();
     }
-} catch (Exception $e) {
+} catch (PDOException $e) {
     error_log("Error fetching user info: " . $e->getMessage());
     header("Location: messages.php");
     exit();
@@ -55,6 +66,7 @@ try {
             flex-direction: column;
             font-family: 'Press Start 2P', monospace;
             image-rendering: pixelated;
+            position: relative;
         }
         .chat-header {
             padding: 10px;
@@ -63,6 +75,7 @@ try {
             display: flex;
             align-items: center;
             height: 60px;
+            z-index: 2;
         }
         .chat-header h2 {
             font-size: 16px;
@@ -88,44 +101,44 @@ try {
                 0deg,
                 #2C1810,
                 #2C1810 2px,
-                #3C2419 2px,
-                #3C2419 4px
+                #382015 2px,
+                #382015 4px
             );
+            min-height: 200px;
         }
         .message-bubble {
             max-width: 80%;
-            margin-bottom: 15px;
+            margin: 10px 0;
             padding: 10px;
             border: 2px solid #D4AF37;
-            position: relative;
+            background-color: #3C2419;
+            color: #D4AF37;
             font-size: 12px;
-            line-height: 1.5;
-            font-family: 'Press Start 2P', monospace;
+            word-wrap: break-word;
+            position: relative;
         }
         .message-sent {
             align-self: flex-end;
-            background-color: #D4AF37;
-            color: #2C1810;
-            margin-left: 20%;
-            border-radius: 0;
+            margin-left: auto;
+            background-color: #4A2D1F;
         }
         .message-received {
             align-self: flex-start;
-            background-color: #3C2419;
-            color: #D4AF37;
-            margin-right: 20%;
-            border-radius: 0;
+            margin-right: auto;
+        }
+        .message-text {
+            margin-bottom: 5px;
         }
         .message-time {
             font-size: 8px;
-            opacity: 0.7;
-            margin-top: 5px;
-            font-family: 'Press Start 2P', monospace;
+            color: #8B7355;
+            text-align: right;
         }
         .chat-input {
-            padding: 10px;
+            padding: 15px;
             border-top: 4px solid #D4AF37;
             background-color: #3C2419;
+            z-index: 2;
         }
         .chat-input form {
             display: flex;
@@ -136,12 +149,11 @@ try {
             background-color: #2C1810;
             border: 2px solid #D4AF37;
             color: #D4AF37;
-            resize: none;
-            height: 40px;
             font-family: 'Press Start 2P', monospace;
             font-size: 12px;
-            padding: 8px;
-            border-radius: 0;
+            padding: 10px;
+            resize: none;
+            height: 40px;
         }
         .chat-input textarea:focus {
             background-color: #2C1810;
@@ -152,16 +164,15 @@ try {
         }
         .chat-input button {
             background-color: #D4AF37;
-            border: 2px solid #D4AF37;
+            border: none;
             color: #2C1810;
-            border-radius: 0;
             font-family: 'Press Start 2P', monospace;
             font-size: 12px;
-            padding: 8px 16px;
+            padding: 10px 20px;
+            cursor: pointer;
         }
         .chat-input button:hover {
-            background-color: #B38F28;
-            border-color: #B38F28;
+            background-color: #FFD700;
         }
         .back-button {
             background: none;
@@ -238,7 +249,9 @@ try {
         const chatMessages = document.getElementById('chatMessages');
         const messageForm = document.getElementById('messageForm');
         const otherUserId = <?php echo $other_user_id; ?>;
-        let lastMessageId = 0;
+        let isFirstLoad = true;
+        let isLoading = false;
+        let lastMessageId = -1;
 
         // Function to format date
         function formatDate(date) {
@@ -251,77 +264,132 @@ try {
             });
         }
 
+        // Function to safely encode HTML
+        function escapeHtml(unsafe) {
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
         // Function to add a message to the chat
-        function addMessage(message, isNew = false) {
+        function addMessage(message) {
+            console.log('Adding message:', message);
             const messageDiv = document.createElement('div');
-            messageDiv.className = `message-bubble ${message.sender_id == <?php echo $user_id; ?> ? 'message-sent' : 'message-received'}`;
+            const isSent = message.sender_id == <?php echo $user_id; ?>;
+            messageDiv.className = `message-bubble ${isSent ? 'message-sent' : 'message-received'}`;
+            
+            const messageText = message.message || message.message_text;
+            
             messageDiv.innerHTML = `
-                ${message.message_text}
+                <div class="message-text">${escapeHtml(messageText)}</div>
                 <div class="message-time">${formatDate(message.created_at)}</div>
             `;
             
-            if (isNew) {
-                chatMessages.appendChild(messageDiv);
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-            } else {
-                chatMessages.insertBefore(messageDiv, chatMessages.firstChild);
-            }
-            
-            if (message.id > lastMessageId) {
-                lastMessageId = message.id;
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Function to clear messages
+        function clearMessages() {
+            while (chatMessages.firstChild) {
+                chatMessages.removeChild(chatMessages.firstChild);
             }
         }
 
         // Function to load messages
-        function loadMessages() {
-            fetch(`ajax/get_chat_messages.php?other_user_id=${otherUserId}&last_message_id=${lastMessageId}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success && data.messages.length > 0) {
-                        data.messages.forEach(message => addMessage(message, true));
+        async function loadMessages() {
+            if (isLoading) return;
+            isLoading = true;
+            
+            try {
+                const params = new URLSearchParams({
+                    other_user_id: otherUserId,
+                    last_message_id: lastMessageId
+                });
+                
+                if (isFirstLoad) {
+                    params.append('first_load', '1');
+                }
+                
+                const response = await fetch(`ajax/get_chat_messages.php?${params.toString()}`);
+                if (!response.ok) throw new Error('Network response was not ok');
+                
+                const data = await response.json();
+                console.log('Received messages:', data);
+                
+                if (data.success && data.messages) {
+                    if (isFirstLoad) {
+                        clearMessages();
+                        isFirstLoad = false;
                     }
-                })
-                .catch(error => console.error('Error:', error));
+                    
+                    data.messages.forEach(message => {
+                        if (!document.querySelector(`[data-message-id="${message.id}"]`)) {
+                            if (message.id > lastMessageId) {
+                                lastMessageId = message.id;
+                            }
+                            addMessage(message);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading messages:', error);
+            } finally {
+                isLoading = false;
+            }
         }
 
-        // Load initial messages
-        loadMessages();
-
-        // Poll for new messages every 3 seconds
-        setInterval(loadMessages, 3000);
-
-        // Handle message submission
-        messageForm.addEventListener('submit', function(e) {
+        // Handle message form submission
+        messageForm.addEventListener('submit', async function(e) {
             e.preventDefault();
             const messageInput = document.getElementById('message');
             const message = messageInput.value.trim();
             
             if (!message) return;
-
-            fetch('ajax/send_message.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    receiver_id: otherUserId,
-                    message: message
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
+            
+            try {
+                const formData = new URLSearchParams();
+                formData.append('receiver_id', otherUserId);
+                formData.append('message', message);
+                
+                const response = await fetch('ajax/send_message.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: formData.toString()
+                });
+                
+                if (!response.ok) throw new Error('Network response was not ok');
+                
+                const data = await response.json();
+                console.log('Send message response:', data);
+                
                 if (data.success) {
                     messageInput.value = '';
-                    loadMessages();
+                    // Add the message immediately
+                    addMessage({
+                        id: data.message_id,
+                        sender_id: <?php echo $user_id; ?>,
+                        receiver_id: otherUserId,
+                        message_text: message,
+                        created_at: new Date().toISOString()
+                    });
+                    lastMessageId = data.message_id;
                 } else {
-                    alert('Error: ' + data.message);
+                    console.error('Failed to send message:', data.message);
                 }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('Failed to send message. Please try again.');
-            });
+            } catch (error) {
+                console.error('Error sending message:', error);
+            }
         });
+
+        // Load messages initially and then every few seconds
+        loadMessages();
+        setInterval(loadMessages, 3000);
     </script>
 </body>
 </html>

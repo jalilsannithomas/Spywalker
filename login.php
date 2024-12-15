@@ -4,36 +4,59 @@ ini_set('display_errors', 1);
 session_start();
 require_once 'config/db.php';
 
+// Update db.php to use PDO
+// $conn = new PDO('mysql:host=localhost;dbname=spywalker', 'username', 'password');
+
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $email = mysqli_real_escape_string($conn, $_POST['email']);
+    $email = $_POST['email'];
     $password = $_POST['password'];
     
     // Debug information
     error_log("=== Login Attempt ===");
     error_log("Email: " . $email);
     
-    $sql = "SELECT * FROM users WHERE email = ?";
-    $stmt = mysqli_prepare($conn, $sql);
-    mysqli_stmt_bind_param($stmt, "s", $email);
-    mysqli_stmt_execute($stmt);
-    $result = mysqli_stmt_get_result($stmt);
-    
-    if ($user = mysqli_fetch_assoc($result)) {
-        if (password_verify($password, $user['password'])) {
-            $_SESSION['user_id'] = $user['id'];
-            $_SESSION['username'] = $user['username'];
-            $_SESSION['role'] = $user['role'];
-            $_SESSION['first_name'] = $user['first_name'];
-            $_SESSION['fantasy_team_name'] = $user['fantasy_team_name'] ?? 'My Fantasy Team';
+    try {
+        $sql = "SELECT * FROM users WHERE email = ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->execute([$email]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        error_log("User found in database: " . ($user ? "Yes" : "No"));
+        
+        if ($user) {
+            error_log("Stored hashed password: " . $user['password']);
+            error_log("User role: " . $user['role']);
             
-            header("Location: dashboard.php");
-            exit();
+            if (password_verify($password, $user['password'])) {
+                error_log("Password verified successfully");
+                $_SESSION['user_id'] = $user['id'];
+                $_SESSION['username'] = $user['username'];
+                $_SESSION['role'] = $user['role'];
+                $_SESSION['first_name'] = $user['first_name'];
+                $_SESSION['fantasy_team_name'] = $user['fantasy_team_name'] ?? 'My Fantasy Team';
+                
+                header("Location: dashboard.php");
+                exit();
+            } else {
+                error_log("Password verification failed");
+                $error = "Invalid email or password";
+            }
         } else {
+            error_log("No user found with email: " . $email);
             $error = "Invalid email or password";
         }
-    } else {
-        $error = "Invalid email or password";
+    } catch (PDOException $e) {
+        error_log("Database error: " . $e->getMessage());
+        $error = "A system error occurred. Please try again later.";
     }
+}
+
+// For debugging: Display current database connection info
+try {
+    $test = $conn->query("SELECT COUNT(*) FROM users")->fetchColumn();
+    error_log("Total users in database: " . $test);
+} catch (PDOException $e) {
+    error_log("Database connection test failed: " . $e->getMessage());
 }
 ?>
 

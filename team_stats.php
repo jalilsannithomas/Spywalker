@@ -38,20 +38,19 @@ try {
         LEFT JOIN sports s ON ap.sport_id = s.id
         LEFT JOIN matches m ON (m.home_team_id = t.id OR m.away_team_id = t.id) AND m.status = 'completed'
         LEFT JOIN player_stats ps ON ps.player_id = ap.id AND ps.match_id = m.id
-        WHERE ffa.fan_id = ?
+        WHERE ffa.fan_id = :user_id
         GROUP BY ap.id, ap.first_name, ap.last_name, t.name, s.name, ap.position_id, t.coach_id
         ORDER BY ap.last_name, ap.first_name";
 
         $stmt = $conn->prepare($sql);
-        $stmt->bind_param("i", $user_id);
+        $stmt->bindParam(':user_id', $user_id, PDO::PARAM_INT);
         $stmt->execute();
-        $result = $stmt->get_result();
-        $followed_athletes = $result->fetch_all(MYSQLI_ASSOC);
+        $followed_athletes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         if (!empty($followed_athletes)) {
             // Get recent matches for followed athletes
             $athlete_teams = array_unique(array_column($followed_athletes, 'team_id'));
-            $team_placeholders = str_repeat('?,', count($athlete_teams) - 1) . '?';
+            $team_placeholders = implode(',', array_fill(0, count($athlete_teams), '?'));
             
             $sql = "SELECT 
                         m.*,
@@ -67,47 +66,46 @@ try {
                     LIMIT 5";
             
             $stmt = $conn->prepare($sql);
-            $types = str_repeat('i', count($athlete_teams) * 2);
             $values = array_merge($athlete_teams, $athlete_teams);
-            $stmt->bind_param($types, ...$values);
-            $stmt->execute();
-            $recent_matches = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $stmt->execute($values);
+            $recent_matches = $stmt->fetchAll(PDO::FETCH_ASSOC);
         }
     } else if ($role === 'athlete' || $role === 'admin' || $role === 'coach') {
         // Get user's team and sport information
         if ($role === 'coach') {
-            error_log("Coach ID (user_id): " . $user_id);
-            $sql = "SELECT t.id as team_id, t.name as team_name, s.name as sport_name, s.id as sport_id 
+            $sql = "SELECT t.id as team_id, t.name as team_name, s.name as sport_name, s.id as sport_id,
+                    t.primary_color, t.secondary_color
                     FROM teams t 
-                    INNER JOIN sports s ON t.sport_id = s.id 
-                    WHERE t.coach_id = ?";
-            error_log("SQL Query for coach: " . $sql);
+                    JOIN sports s ON t.sport_id = s.id 
+                    WHERE t.coach_id = :user_id 
+                    LIMIT 1";
+            
             $stmt = $conn->prepare($sql);
-            $stmt->bind_param("i", $user_id);
+            $stmt->bindParam(':user_id', $user_id, PDO::PARAM_INT);
             $stmt->execute();
-            $result = $stmt->get_result();
-            error_log("Query result: " . ($result ? "Success" : "Failed") . " - Number of rows: " . $result->num_rows);
-            $team_result = $result->fetch_assoc();
-            error_log("Team result: " . print_r($team_result, true));
+            $team_result = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$team_result) {
+                error_log("No team found for coach ID: " . $user_id);
+            }
         } else {
-            $sql = "SELECT t.id as team_id, t.name as team_name, s.name as sport_name, s.id as sport_id 
+            $sql = "SELECT t.id as team_id, t.name as team_name, s.name as sport_name, s.id as sport_id,
+                    t.primary_color, t.secondary_color
                     FROM teams t 
                     INNER JOIN sports s ON t.sport_id = s.id 
                     INNER JOIN team_players tp ON t.id = tp.team_id 
                     INNER JOIN athlete_profiles ap ON tp.athlete_id = ap.id 
-                    WHERE ap.user_id = ?";
+                    WHERE ap.user_id = :user_id";
+            $stmt = $conn->prepare($sql);
+            $stmt->bindParam(':user_id', $user_id, PDO::PARAM_INT);
+            $stmt->execute();
+            $team_result = $stmt->fetch(PDO::FETCH_ASSOC);
         }
-        
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("i", $user_id);
-        $stmt->execute();
-        $team_result = $stmt->get_result()->fetch_assoc();
-        
-        error_log("Team Result: " . print_r($team_result, true));
         
         if ($team_result) {
             $sport_type = strtolower($team_result['sport_name']);
-            // For athletes and admins, get stats for their team
+            
+            // Get team statistics
             $sql = "SELECT 
                         t.id as team_id,
                         t.name as team_name,
@@ -135,17 +133,23 @@ try {
                         ), 1) as avg_score
                     FROM teams t
                     JOIN " . ($role === 'athlete' ? 'team_players tp ON t.id = tp.team_id
-                    JOIN athlete_profiles ap ON tp.athlete_id = ap.id' : 'coach_profiles cp ON t.coach_id = cp.id') . "
+                    JOIN athlete_profiles ap ON tp.athlete_id = ap.id' : 'coach_profiles cp ON cp.user_id = t.coach_id AND cp.sport_id = t.sport_id') . "
                     JOIN sports s ON t.sport_id = s.id
                     LEFT JOIN matches m ON (m.home_team_id = t.id OR m.away_team_id = t.id) AND m.status = 'completed'
-                    WHERE " . ($role === 'athlete' ? 'ap.user_id = ?' : 'cp.user_id = ?') . "
+                    WHERE " . ($role === 'athlete' ? 'ap.user_id = :user_id' : 'cp.user_id = :user_id') . "
                     GROUP BY t.id, t.name, s.name";
 
+            error_log("Team stats query: " . $sql);
+            error_log("Team ID: " . $team_result['team_id']);
+            
             $stmt = $conn->prepare($sql);
-            $stmt->bind_param("i", $user_id);
+            $stmt->bindParam(':user_id', $user_id, PDO::PARAM_INT);
             $stmt->execute();
-            $result = $stmt->get_result();
-            $team_stats = $result->fetch_assoc();
+            $team_stats = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$team_stats) {
+                error_log("No team stats found for team ID: " . $team_result['team_id']);
+            }
 
             if ($team_stats) {
                 // Get recent matches
@@ -157,15 +161,15 @@ try {
                         FROM matches m
                         JOIN teams ht ON m.home_team_id = ht.id
                         JOIN teams at ON m.away_team_id = at.id
-                        WHERE (m.home_team_id = ? OR m.away_team_id = ?)
+                        WHERE (m.home_team_id = :team_id OR m.away_team_id = :team_id)
                             AND m.status = 'completed'
                         ORDER BY m.match_date DESC
                         LIMIT 5";
                 
                 $stmt = $conn->prepare($sql);
-                $stmt->bind_param("ii", $team_stats['team_id'], $team_stats['team_id']);
+                $stmt->bindParam(':team_id', $team_stats['team_id'], PDO::PARAM_INT);
                 $stmt->execute();
-                $recent_matches = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+                $recent_matches = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                 // Get stat sheet data for the latest match
                 $sql = "SELECT 
@@ -199,19 +203,19 @@ try {
                                 SELECT id 
                                 FROM matches 
                                 WHERE status = 'completed'
-                                AND (home_team_id = ? OR away_team_id = ?)
+                                AND (home_team_id = :team_id OR away_team_id = :team_id)
                             )
                         ) ps ON ps.player_id = ap.id
                         LEFT JOIN matches m ON ps.match_id = m.id
                         LEFT JOIN teams ht ON m.home_team_id = ht.id
                         LEFT JOIN teams at ON m.away_team_id = at.id
-                        WHERE tp.team_id = ?
+                        WHERE tp.team_id = :team_id
                         ORDER BY tp.jersey_number ASC, player_name ASC";
                 
                 $stmt = $conn->prepare($sql);
-                $stmt->bind_param("iii", $team_stats['team_id'], $team_stats['team_id'], $team_stats['team_id']);
+                $stmt->bindParam(':team_id', $team_stats['team_id'], PDO::PARAM_INT);
                 $stmt->execute();
-                $stat_sheet = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+                $stat_sheet = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                 // Get match details for the stat sheet
                 $match_date = !empty($stat_sheet) ? $stat_sheet[0]['match_date'] : date('Y-m-d');
@@ -224,6 +228,9 @@ try {
         throw new Exception("Stats are only available for athletes, admins, and fans");
     }
 
+} catch (PDOException $e) {
+    error_log("Database error in team_stats.php: " . $e->getMessage());
+    $_SESSION['error_message'] = "An error occurred while fetching statistics. Please try again later.";
 } catch (Exception $e) {
     $_SESSION['error_message'] = $e->getMessage();
 }
@@ -414,16 +421,20 @@ try {
             </div>
         <?php endif; ?>
 
-        <?php if ($role === 'coach'): ?>
-            <div class="debug-info" style="background: #333; padding: 10px; margin: 10px 0; border-radius: 5px;">
-                <p>Role: <?php echo htmlspecialchars($role); ?></p>
-                <p>User ID: <?php echo htmlspecialchars($user_id); ?></p>
-                <?php if (isset($team_result)): ?>
-                    <p>Team Found: <?php echo $team_result ? 'Yes' : 'No'; ?></p>
-                    <?php if ($team_result): ?>
-                        <p>Team Name: <?php echo htmlspecialchars($team_result['team_name']); ?></p>
-                    <?php endif; ?>
-                <?php endif; ?>
+        <?php if ($role === 'coach' && isset($team_result)): ?>
+            <div class="team-info" style="background: <?php echo htmlspecialchars($team_result['primary_color']); ?>; 
+                                        color: <?php echo htmlspecialchars($team_result['secondary_color']); ?>;
+                                        padding: 20px; 
+                                        margin: 20px 0; 
+                                        border-radius: 10px;
+                                        box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
+                <h2 style="margin-bottom: 15px;">Team Information</h2>
+                <p><strong>Team Name:</strong> <?php echo htmlspecialchars($team_result['team_name']); ?></p>
+                <p><strong>Sport:</strong> <?php echo htmlspecialchars($team_result['sport_name']); ?></p>
+                <div class="color-display">
+                    <span style="display: inline-block; width: 20px; height: 20px; background: <?php echo htmlspecialchars($team_result['primary_color']); ?>; margin-right: 10px;"></span>
+                    <span style="display: inline-block; width: 20px; height: 20px; background: <?php echo htmlspecialchars($team_result['secondary_color']); ?>;"></span>
+                </div>
             </div>
         <?php endif; ?>
 

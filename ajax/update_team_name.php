@@ -2,9 +2,11 @@
 session_start();
 require_once '../config/db.php';
 
-// Enable error logging
+// Enable error reporting
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
+
+header('Content-Type: application/json');
 
 if (!isset($_SESSION['user_id'])) {
     http_response_code(401);
@@ -18,59 +20,48 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit();
 }
 
-$data = json_decode(file_get_contents('php://input'), true);
-$team_name = trim($data['team_name'] ?? '');
-
-if (empty($team_name)) {
-    http_response_code(400);
-    echo json_encode(['success' => false, 'error' => 'Team name cannot be empty']);
-    exit();
-}
-
-// Sanitize the team name
-$team_name = htmlspecialchars($team_name, ENT_QUOTES, 'UTF-8');
-
-// Update the team name in the fantasy_teams table
-$user_id = $_SESSION['user_id'];
-
 try {
-    // First verify the team exists
-    $verify_query = "SELECT id FROM fantasy_teams WHERE user_id = ?";
-    $verify_stmt = $conn->prepare($verify_query);
-    if (!$verify_stmt) {
-        throw new Exception("Failed to prepare verify query: " . $conn->error);
+    // Get and validate the input data
+    $input = file_get_contents('php://input');
+    $data = json_decode($input, true);
+    
+    if (!isset($data['team_name']) || empty(trim($data['team_name']))) {
+        throw new Exception('Team name is required');
     }
     
-    $verify_stmt->bind_param("i", $user_id);
-    if (!$verify_stmt->execute()) {
-        throw new Exception("Failed to execute verify query: " . $verify_stmt->error);
-    }
+    $team_name = trim($data['team_name']);
     
-    $result = $verify_stmt->get_result();
-    if ($result->num_rows === 0) {
-        throw new Exception("No fantasy team found for user");
+    // First, get the user's team
+    $query = "SELECT id FROM fantasy_teams WHERE user_id = :user_id LIMIT 1";
+    $stmt = $conn->prepare($query);
+    $stmt->bindParam(':user_id', $_SESSION['user_id'], PDO::PARAM_INT);
+    $stmt->execute();
+    
+    $team = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$team) {
+        throw new Exception('No fantasy team found for this user');
     }
     
     // Update the team name
-    $update_query = "UPDATE fantasy_teams SET team_name = ? WHERE user_id = ?";
+    $update_query = "UPDATE fantasy_teams SET team_name = :team_name WHERE id = :team_id";
     $update_stmt = $conn->prepare($update_query);
-    if (!$update_stmt) {
-        throw new Exception("Failed to prepare update query: " . $conn->error);
-    }
+    $update_stmt->bindParam(':team_name', $team_name, PDO::PARAM_STR);
+    $update_stmt->bindParam(':team_id', $team['id'], PDO::PARAM_INT);
     
-    $update_stmt->bind_param("si", $team_name, $user_id);
-    if (!$update_stmt->execute()) {
-        throw new Exception("Failed to execute update query: " . $update_stmt->error);
+    if ($update_stmt->execute()) {
+        echo json_encode([
+            'success' => true,
+            'message' => 'Team name updated successfully',
+            'team_name' => $team_name
+        ]);
+    } else {
+        throw new Exception('Failed to update team name');
     }
-    
-    if ($update_stmt->affected_rows === 0) {
-        throw new Exception("No changes made to team name");
-    }
-    
-    echo json_encode(['success' => true, 'team_name' => $team_name]);
     
 } catch (Exception $e) {
-    error_log("Error updating team name: " . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode([
+        'success' => false,
+        'error' => $e->getMessage()
+    ]);
 }

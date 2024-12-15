@@ -35,7 +35,9 @@ if ($role === 'admin') {
                    LEFT JOIN sports s ON t.sport_id = s.id 
                    LEFT JOIN team_members tm ON t.id = tm.team_id 
                    GROUP BY t.id";
-    $teams = $conn->query($teams_query)->fetch_all(MYSQLI_ASSOC);
+    $stmt = $conn->prepare($teams_query);
+    $stmt->execute();
+    $teams = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } else {
     $teams_query = "SELECT t.*, s.name as sport_name, 
                           COUNT(tm.id) as player_count 
@@ -45,9 +47,8 @@ if ($role === 'admin') {
                    WHERE t.coach_id = ? 
                    GROUP BY t.id";
     $stmt = $conn->prepare($teams_query);
-    $stmt->bind_param("i", $user_id);
-    $stmt->execute();
-    $teams = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->execute([$_SESSION['user_id']]);
+    $teams = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
 // Check if team_id is provided
@@ -60,9 +61,8 @@ if (!$team_id) {
 // Verify user has access to this team
 if ($role === 'coach') {
     $access_check = $conn->prepare("SELECT id FROM teams WHERE id = ? AND coach_id = ?");
-    $access_check->bind_param("ii", $team_id, $user_id);
-    $access_check->execute();
-    if ($access_check->get_result()->num_rows === 0) {
+    $access_check->execute([$team_id, $user_id]);
+    if ($access_check->rowCount() === 0) {
         error_log("Access denied - Coach ID: $user_id, Team ID: $team_id");
         header('Location: ../dashboard.php');
         exit();
@@ -75,85 +75,75 @@ $team_query = "SELECT t.*, s.name as sport_name
                JOIN sports s ON t.sport_id = s.id 
                WHERE t.id = ?";
 $stmt = $conn->prepare($team_query);
-$stmt->bind_param("i", $team_id);
-$stmt->execute();
-$team = $stmt->get_result()->fetch_assoc();
+$stmt->execute([$team_id]);
+$team = $stmt->fetch(PDO::FETCH_ASSOC);
 
 // Get current roster with additional details
-$roster_query = "SELECT tm.id, tm.team_id, tm.user_id, tm.jersey_number, 
-                        u.username, u.email, u.role,
-                        ap.height, ap.weight,
-                        p.name as position_name,
-                        tm.position_id
+$roster_query = "SELECT tm.id, tm.team_id, tm.athlete_id, 
+                        u.first_name, u.last_name, u.email, u.role,
+                        ap.height_feet, ap.height_inches, ap.weight,
+                        ap.jersey_number, ap.years_of_experience,
+                        ap.school_year
                  FROM team_members tm
-                 JOIN users u ON tm.user_id = u.id
+                 JOIN users u ON tm.athlete_id = u.id
                  LEFT JOIN athlete_profiles ap ON u.id = ap.user_id
-                 LEFT JOIN positions p ON tm.position_id = p.id
-                 WHERE tm.team_id = ?
-                 ORDER BY tm.jersey_number";
+                 WHERE tm.team_id = ?";
 $stmt = $conn->prepare($roster_query);
-$stmt->bind_param("i", $team_id);
-$stmt->execute();
-$roster = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$stmt->execute([$team_id]);
+$roster = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get available positions for this sport
 $positions_query = "SELECT * FROM positions WHERE sport_id = ?";
 $stmt = $conn->prepare($positions_query);
-$stmt->bind_param("i", $team['sport_id']);
-$stmt->execute();
-$positions = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$stmt->execute([$team['sport_id']]);
+$positions = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get available athletes
-$athletes_query = "SELECT u.*, ap.height, ap.weight,
-                         p.name as preferred_position
-                  FROM users u 
-                  LEFT JOIN athlete_profiles ap ON u.id = ap.user_id
-                  LEFT JOIN positions p ON ap.position_id = p.id
-                  LEFT JOIN team_members tm ON u.id = tm.user_id 
-                  WHERE u.role = 'athlete' 
-                  AND tm.id IS NULL
-                  ORDER BY u.username";
+$athletes_query = "SELECT u.id, u.first_name, u.last_name, u.email, u.role,
+                         ap.height_feet, ap.height_inches, ap.weight,
+                         ap.jersey_number, ap.years_of_experience,
+                         ap.school_year
+                   FROM users u 
+                   LEFT JOIN athlete_profiles ap ON u.id = ap.user_id
+                   LEFT JOIN team_members tm ON u.id = tm.athlete_id 
+                   WHERE u.role = 'athlete' 
+                   AND tm.id IS NULL
+                   ORDER BY u.first_name, u.last_name";
 $stmt = $conn->prepare($athletes_query);
 $stmt->execute();
-$available_athletes = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$available_athletes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['add_player'])) {
         $user_id = $_POST['user_id'];
-        $jersey_number = $_POST['jersey_number'];
-        $position_id = $_POST['position_id'];
         
-        // Check if jersey number is already taken
-        $check_jersey = $conn->prepare("SELECT id FROM team_members WHERE team_id = ? AND jersey_number = ?");
-        $check_jersey->bind_param("ii", $team_id, $jersey_number);
-        $check_jersey->execute();
-        if ($check_jersey->get_result()->num_rows > 0) {
-            $_SESSION['error'] = "Jersey number {$jersey_number} is already taken.";
+        // Insert the player into team_members
+        $stmt = $conn->prepare("INSERT INTO team_members (team_id, athlete_id) VALUES (?, ?)");
+        $stmt->execute([$team_id, $user_id]);
+        
+        if ($stmt->rowCount() > 0) {
+            $_SESSION['success'] = "Player added successfully.";
         } else {
-            $stmt = $conn->prepare("INSERT INTO team_members (team_id, user_id, jersey_number, position_id) VALUES (?, ?, ?, ?)");
-            $stmt->bind_param("iiii", $team_id, $user_id, $jersey_number, $position_id);
-            
-            if ($stmt->execute()) {
-                $_SESSION['success'] = "Player added successfully.";
-            } else {
-                $_SESSION['error'] = "Error adding player: " . $conn->error;
-            }
+            $_SESSION['error'] = "Error adding player.";
+            error_log("Failed to add player. user_id: $user_id, team_id: $team_id");
         }
         header("Location: manage_roster.php?team_id=" . $team_id);
         exit();
     }
     
     if (isset($_POST['remove_player'])) {
-        $member_id = $_POST['remove_player'];
+        $member_id = $_POST['member_id'];
+        error_log("Removing player with member_id: " . $member_id);
         
         $stmt = $conn->prepare("DELETE FROM team_members WHERE id = ? AND team_id = ?");
-        $stmt->bind_param("ii", $member_id, $team_id);
+        $stmt->execute([$member_id, $team_id]);
         
-        if ($stmt->execute()) {
+        if ($stmt->rowCount() > 0) {
             $_SESSION['success'] = "Player removed successfully.";
         } else {
-            $_SESSION['error'] = "Error removing player: " . $conn->error;
+            $_SESSION['error'] = "Error removing player. Please try again.";
+            error_log("Failed to remove player. member_id: $member_id, team_id: $team_id");
         }
         header("Location: manage_roster.php?team_id=" . $team_id);
         exit();
@@ -215,19 +205,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <?php foreach ($roster as $player): ?>
                         <div class="athlete-card">
                             <div class="avatar-circle">
-                                <span><?php echo strtoupper(substr($player['username'], 0, 1)); ?></span>
+                                <span><?php echo strtoupper(substr($player['first_name'], 0, 1)); ?></span>
                             </div>
                             <div class="player-name">
-                                <?php echo htmlspecialchars($player['username']); ?>
+                                <?php echo htmlspecialchars($player['first_name'] . ' ' . $player['last_name']); ?>
                             </div>
                             <div class="stats-display">
                                 <div class="stat-item">
                                     <div>HEIGHT</div>
-                                    <div class="stat-value"><?php echo $player['height']; ?></div>
+                                    <div class="stat-value"><?php echo $player['height_feet'] . "'" . $player['height_inches'] . '"'; ?></div>
                                 </div>
                                 <div class="stat-item">
                                     <div>WEIGHT</div>
-                                    <div class="stat-value"><?php echo $player['weight']; ?></div>
+                                    <div class="stat-value"><?php echo $player['weight']; ?> lbs</div>
                                 </div>
                                 <div class="stat-item">
                                     <div>NUMBER</div>
@@ -235,11 +225,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </div>
                             </div>
                             <div class="player-info">
-                                <div>Position: <?php echo htmlspecialchars($player['position_name']); ?></div>
+                                <div>Experience: <?php echo $player['years_of_experience']; ?> years</div>
+                                <div>Year: <?php echo $player['school_year']; ?></div>
+                                <div>Email: <?php echo htmlspecialchars($player['email']); ?></div>
                             </div>
                             <form method="POST" class="text-center">
                                 <input type="hidden" name="member_id" value="<?php echo $player['id']; ?>">
-                                <button type="submit" name="remove_player" class="btn btn-remove">REMOVE FROM TEAM</button>
+                                <button type="submit" name="remove_player" value="1" class="btn btn-remove">REMOVE FROM TEAM</button>
                             </form>
                         </div>
                     <?php endforeach; ?>
@@ -256,37 +248,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <?php foreach ($available_athletes as $athlete): ?>
                             <div class="athlete-card">
                                 <div class="avatar-circle">
-                                    <span><?php echo strtoupper(substr($athlete['username'], 0, 1)); ?></span>
+                                    <span><?php echo strtoupper(substr($athlete['first_name'], 0, 1)); ?></span>
                                 </div>
                                 <div class="player-name">
-                                    <?php echo htmlspecialchars($athlete['username']); ?>
+                                    <?php echo htmlspecialchars($athlete['first_name'] . ' ' . $athlete['last_name']); ?>
                                 </div>
                                 <div class="stats-display">
                                     <div class="stat-item">
                                         <div>HEIGHT</div>
-                                        <div class="stat-value"><?php echo $athlete['height']; ?></div>
+                                        <div class="stat-value"><?php echo $athlete['height_feet'] . "'" . $athlete['height_inches'] . '"'; ?></div>
                                     </div>
                                     <div class="stat-item">
                                         <div>WEIGHT</div>
-                                        <div class="stat-value"><?php echo $athlete['weight']; ?></div>
+                                        <div class="stat-value"><?php echo $athlete['weight']; ?> lbs</div>
                                     </div>
+                                    <?php if ($athlete['jersey_number']): ?>
+                                    <div class="stat-item">
+                                        <div>NUMBER</div>
+                                        <div class="stat-value">#<?php echo $athlete['jersey_number']; ?></div>
+                                    </div>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="player-info">
+                                    <div>Experience: <?php echo $athlete['years_of_experience']; ?> years</div>
+                                    <div>Year: <?php echo $athlete['school_year']; ?></div>
+                                    <div>Email: <?php echo htmlspecialchars($athlete['email']); ?></div>
                                 </div>
                                 <form method="POST" class="text-center">
                                     <input type="hidden" name="user_id" value="<?php echo $athlete['id']; ?>">
-                                    <div class="form-group">
-                                        <input type="number" name="jersey_number" class="form-control" placeholder="Jersey Number" required>
-                                    </div>
-                                    <div class="form-group">
-                                        <select name="position_id" class="form-select" required>
-                                            <option value="">Select Position</option>
-                                            <?php foreach ($positions as $position): ?>
-                                                <option value="<?php echo $position['id']; ?>">
-                                                    <?php echo htmlspecialchars($position['name']); ?>
-                                                </option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    </div>
-                                    <button type="submit" name="add_player" class="btn">ADD TO TEAM</button>
+                                    <button type="submit" name="add_player" class="btn btn-add">ADD TO TEAM</button>
                                 </form>
                             </div>
                         <?php endforeach; ?>

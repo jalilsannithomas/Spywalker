@@ -1,32 +1,8 @@
-# IDE and Editor files
-.vscode/
-.idea/
-*.sublime-*
-*.swp
-*~
-
-# OS generated files
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Configuration files with sensitive data
-/config/db.php
-
-# Uploaded files and cache
-/uploads/*
-/cache/*
-*.log
-
-# Dependency directories
-/vendor/
-/node_modules/
-
-# Environment files
 .env
-.env.*
-!.env.example
+config/config.php
+uploads/*
+!uploads/.gitkeep
+*.log
+vendor/
+node_modules/

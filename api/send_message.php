@@ -32,27 +32,55 @@ $sender_id = $_SESSION['user_id'];
 $receiver_id = $data['receiver_id'];
 $message = $data['message'];
 
-error_log("Attempting to send message - From: $sender_id, To: $receiver_id");
+error_log("Message details - Sender: $sender_id, Receiver: $receiver_id, Message: $message");
+
+// Verify both users exist
+try {
+    $check_users_sql = "SELECT COUNT(*) as count FROM users WHERE id IN (:sender_id, :receiver_id)";
+    $check_stmt = $conn->prepare($check_users_sql);
+    $check_stmt->bindParam(':sender_id', $sender_id, PDO::PARAM_INT);
+    $check_stmt->bindParam(':receiver_id', $receiver_id, PDO::PARAM_INT);
+    $check_stmt->execute();
+    $user_count = $check_stmt->fetch(PDO::FETCH_ASSOC)['count'];
+    
+    if ($user_count != 2) {
+        error_log("Invalid users - count returned: $user_count");
+        throw new Exception("Invalid sender or receiver ID");
+    }
+} catch (Exception $e) {
+    error_log("Error checking users: " . $e->getMessage());
+    echo json_encode(['success' => false, 'message' => 'Error validating users: ' . $e->getMessage()]);
+    exit;
+}
 
 try {
     // Insert the message
-    $sql = "INSERT INTO messages (sender_id, receiver_id, message_text, created_at) VALUES (?, ?, ?, NOW())";
+    $sql = "INSERT INTO messages (sender_id, receiver_id, message, created_at) VALUES (:sender_id, :receiver_id, :message, NOW())";
     $stmt = $conn->prepare($sql);
     
     if (!$stmt) {
-        throw new Exception("Failed to prepare statement: " . $conn->error);
+        $error = $conn->errorInfo();
+        error_log("Failed to prepare statement: " . print_r($error, true));
+        throw new Exception("Failed to prepare statement: " . $error[2]);
     }
     
-    $stmt->bind_param("iis", $sender_id, $receiver_id, $message);
+    $stmt->bindParam(':sender_id', $sender_id, PDO::PARAM_INT);
+    $stmt->bindParam(':receiver_id', $receiver_id, PDO::PARAM_INT);
+    $stmt->bindParam(':message', $message, PDO::PARAM_STR);
     
     if (!$stmt->execute()) {
-        throw new Exception("Failed to execute statement: " . $stmt->error);
+        $error = $stmt->errorInfo();
+        error_log("Failed to execute statement: " . print_r($error, true));
+        throw new Exception("Failed to execute statement: " . $error[2]);
     }
     
-    error_log("Message sent successfully - Message ID: " . $conn->insert_id);
-    echo json_encode(['success' => true]);
+    $message_id = $conn->lastInsertId();
+    error_log("Message sent successfully with ID: $message_id");
     
+    echo json_encode(['success' => true, 'message' => 'Message sent successfully', 'message_id' => $message_id]);
 } catch (Exception $e) {
     error_log("Error in send_message.php: " . $e->getMessage());
-    echo json_encode(['success' => false, 'message' => 'Failed to send message: ' . $e->getMessage()]);
+    error_log("Stack trace: " . $e->getTraceAsString());
+    echo json_encode(['success' => false, 'message' => 'Error sending message: ' . $e->getMessage()]);
 }
+?>

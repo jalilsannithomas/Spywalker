@@ -13,8 +13,11 @@ $success_message = '';
 $error_message = '';
 
 // Debug database connection
-if ($conn->connect_error) {
-    die("<!-- Connection failed: " . $conn->connect_error . " -->");
+try {
+    $conn->query("SELECT 1");
+} catch (PDOException $e) {
+    error_log("Connection error: " . $e->getMessage());
+    die("Database connection error");
 }
 
 // Debug POST data
@@ -23,38 +26,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Get all sports with error checking
-$sports_query = "SELECT id, name FROM sports ORDER BY name";
-echo "<!-- Executing query: " . htmlspecialchars($sports_query) . " -->";
-
-$sports_result = $conn->query($sports_query);
-if (!$sports_result) {
-    die("<!-- Query failed: " . $conn->error . " -->");
+try {
+    $sports_query = "SELECT id, name FROM sports ORDER BY name";
+    $stmt = $conn->prepare($sports_query);
+    $stmt->execute();
+    $sports = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    error_log("Total sports found: " . count($sports));
+} catch (PDOException $e) {
+    error_log("Sports query error: " . $e->getMessage());
+    $sports = [];
 }
-
-$sports = [];
-while ($row = $sports_result->fetch_assoc()) {
-    $sports[] = $row;
-    echo "<!-- Found sport: " . htmlspecialchars(json_encode($row)) . " -->";
-}
-
-echo "<!-- Total sports found: " . count($sports) . " -->";
 
 // Get all teams with error checking
-$teams_query = "SELECT id, name FROM teams ORDER BY name";
-echo "<!-- Executing query: " . htmlspecialchars($teams_query) . " -->";
-
-$teams_result = $conn->query($teams_query);
-if (!$teams_result) {
-    die("<!-- Query failed: " . $conn->error . " -->");
+try {
+    $teams_query = "SELECT id, name FROM teams ORDER BY name";
+    $stmt = $conn->prepare($teams_query);
+    $stmt->execute();
+    $teams = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    error_log("Total teams found: " . count($teams));
+} catch (PDOException $e) {
+    error_log("Teams query error: " . $e->getMessage());
+    $teams = [];
 }
 
-$teams = [];
-while ($row = $teams_result->fetch_assoc()) {
-    $teams[] = $row;
-    echo "<!-- Found team: " . htmlspecialchars(json_encode($row)) . " -->";
+// Get all matches with team and sport names
+try {
+    $matches_query = "SELECT m.*, 
+                            s.name as sport_name,
+                            ht.name as home_team_name,
+                            at.name as away_team_name
+                     FROM matches m
+                     JOIN sports s ON m.sport_id = s.id
+                     JOIN teams ht ON m.home_team_id = ht.id
+                     JOIN teams at ON m.away_team_id = at.id
+                     ORDER BY m.match_date";
+    $stmt = $conn->prepare($matches_query);
+    $stmt->execute();
+    $matches = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    error_log("Total matches found: " . count($matches));
+} catch (PDOException $e) {
+    error_log("Matches query error: " . $e->getMessage());
+    $matches = [];
 }
-
-echo "<!-- Total teams found: " . count($teams) . " -->";
 
 // Process form submission for adding new match
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add') {
@@ -76,27 +89,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     } else {
         // Insert new match
         $datetime = date('Y-m-d H:i:s', strtotime("$match_date $match_time"));
-        $insert_query = "INSERT INTO matches (sport_id, home_team_id, away_team_id, match_date, venue) 
-                        VALUES (?, ?, ?, ?, ?)";
+        $insert_query = "INSERT INTO matches (sport_id, home_team_id, away_team_id, match_date) 
+                        VALUES (:sport_id, :home_team_id, :away_team_id, :match_date)";
         error_log("Executing query: " . $insert_query);
-        error_log("With values: sport_id=$sport_id, home_team_id=$home_team_id, away_team_id=$away_team_id, datetime=$datetime, venue=$venue");
+        error_log("With values: sport_id=$sport_id, home_team_id=$home_team_id, away_team_id=$away_team_id, datetime=$datetime");
         
         try {
             $stmt = $conn->prepare($insert_query);
-            $stmt->bind_param("iiiss", $sport_id, $home_team_id, $away_team_id, $datetime, $venue);
+            $stmt->bindParam(':sport_id', $sport_id);
+            $stmt->bindParam(':home_team_id', $home_team_id);
+            $stmt->bindParam(':away_team_id', $away_team_id);
+            $stmt->bindParam(':match_date', $datetime);
             
             if ($stmt->execute()) {
                 $success_message = "Match added successfully";
-                error_log("Match added successfully with ID: " . $conn->insert_id);
+                error_log("Match added successfully with ID: " . $conn->lastInsertId());
                 // Redirect to prevent form resubmission
                 header("Location: " . $_SERVER['PHP_SELF']);
                 exit();
             } else {
-                $error_message = "Error adding match: " . $stmt->error;
-                error_log("Error adding match: " . $stmt->error);
+                $error_message = "Error adding match: " . $stmt->errorInfo()[2];
+                error_log("Error adding match: " . $stmt->errorInfo()[2]);
             }
-            $stmt->close();
-        } catch (Exception $e) {
+            $stmt->closeCursor();
+        } catch (PDOException $e) {
             $error_message = "Database error: " . $e->getMessage();
             error_log("Exception adding match: " . $e->getMessage());
         }
@@ -125,18 +141,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         // Create datetime string in MySQL format
         $datetime = date('Y-m-d H:i:s', strtotime("$match_date $match_time"));
         $update_query = "UPDATE matches 
-                        SET sport_id = ?, 
-                            home_team_id = ?, 
-                            away_team_id = ?, 
-                            match_date = ?,
-                            venue = ?
-                        WHERE id = ?";
+                        SET sport_id = :sport_id, 
+                            home_team_id = :home_team_id, 
+                            away_team_id = :away_team_id, 
+                            match_date = :match_date
+                        WHERE id = :match_id";
         
         error_log("Executing update query with datetime: $datetime");
         
         try {
             $stmt = $conn->prepare($update_query);
-            $stmt->bind_param("iiissi", $sport_id, $home_team_id, $away_team_id, $datetime, $venue, $match_id);
+            $stmt->bindParam(':match_id', $match_id);
+            $stmt->bindParam(':sport_id', $sport_id);
+            $stmt->bindParam(':home_team_id', $home_team_id);
+            $stmt->bindParam(':away_team_id', $away_team_id);
+            $stmt->bindParam(':match_date', $datetime);
             
             if ($stmt->execute()) {
                 $success_message = "Match updated successfully";
@@ -145,41 +164,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 header("Location: " . $_SERVER['PHP_SELF']);
                 exit();
             } else {
-                $error_message = "Error updating match: " . $stmt->error;
-                error_log("Error updating match: " . $stmt->error);
+                $error_message = "Error updating match: " . $stmt->errorInfo()[2];
+                error_log("Error updating match: " . $stmt->errorInfo()[2]);
             }
-            $stmt->close();
-        } catch (Exception $e) {
+            $stmt->closeCursor();
+        } catch (PDOException $e) {
             $error_message = "Database error: " . $e->getMessage();
             error_log("Exception updating match: " . $e->getMessage());
         }
     }
 }
 
-// Get all matches with team names - moved after form processing
-$matches_query = "SELECT m.id, m.match_date, m.sport_id, m.home_team_id, m.away_team_id, m.venue,
-                 ht.name as home_team_name,
-                 at.name as away_team_name,
-                 s.name as sport_name
-                 FROM matches m
-                 LEFT JOIN teams ht ON m.home_team_id = ht.id
-                 LEFT JOIN teams at ON m.away_team_id = at.id
-                 LEFT JOIN sports s ON m.sport_id = s.id
-                 ORDER BY m.match_date DESC";
-
-error_log("Fetching matches with query: " . $matches_query);
-$matches_result = $conn->query($matches_query);
-
-if (!$matches_result) {
-    error_log("Error fetching matches: " . $conn->error);
-} else {
-    $matches = [];
-    while ($row = $matches_result->fetch_assoc()) {
-        $matches[] = $row;
-        error_log("Found match: " . print_r($row, true));
-    }
-    error_log("Total matches found: " . count($matches));
-}
 ?>
 
 <!DOCTYPE html>
@@ -446,11 +441,6 @@ if (!$matches_result) {
                         <div class="mb-3">
                             <label class="form-label">Time</label>
                             <input type="time" class="form-control" name="match_time" required>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label">Venue</label>
-                            <input type="text" class="form-control" name="venue" required>
                         </div>
 
                         <div class="text-end">

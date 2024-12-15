@@ -1,12 +1,35 @@
 <?php
-$current_page = str_replace('/Spywalker/', '', $_SERVER['REQUEST_URI']);
+$config_path = dirname($_SERVER['SCRIPT_FILENAME']);
+if (strpos($config_path, '/admin') !== false) {
+    require_once dirname($config_path) . '/config/config.php';
+} else {
+    require_once __DIR__ . '/../config/config.php';
+}
+
+$current_page = str_replace($base_url . '/', '', $_SERVER['REQUEST_URI']);
 $current_page = explode('?', $current_page)[0]; // Remove query parameters if any
 $role = $_SESSION['role'] ?? '';
 
-// Define role-specific paths with leading slash
-$schedule_path = '/Spywalker/team_schedule.php';
-$dashboard_path = $role === 'admin' ? '/Spywalker/admin/dashboard.php' : '/Spywalker/dashboard.php';
-$stats_path = $role === 'admin' ? '/Spywalker/admin/manage_stats.php' : '/Spywalker/team_stats.php';
+// Define role-specific paths
+$schedule_path = get_url('/team_schedule.php');
+$dashboard_path = $role === 'admin' ? get_url('/admin/dashboard.php') : get_url('/dashboard.php');
+
+// Debug
+error_log("HTTP Host: " . $_SERVER['HTTP_HOST']);
+error_log("Current Role: " . $role);
+
+$stats_path = match($role) {
+    'admin' => get_url('/admin/manage_stats.php'),
+    'athlete' => get_url('/player_stats.php'),
+    default => get_url('/team_stats.php')
+};
+
+// Debug the final path
+error_log("Generated Stats Path: " . $stats_path);
+
+// Debug line
+error_log("Role: " . $role . ", Stats Path: " . $stats_path);
+
 ?>
 
 <style>
@@ -30,76 +53,63 @@ $stats_path = $role === 'admin' ? '/Spywalker/admin/manage_stats.php' : '/Spywal
 
     .navbar-brand:hover {
         border-color: #D4AF37;
-        transform: translateY(-2px);
+        transform: scale(1.05);
     }
 
     .nav-link {
         color: #D4AF37 !important;
-        font-size: 12px;
-        padding: 8px 16px !important;
-        margin: 0 4px;
+        margin: 0 5px;
+        padding: 5px 10px !important;
         border: 2px solid transparent;
         transition: all 0.3s ease;
-        position: relative;
+        font-size: 0.8em;
     }
 
     .nav-link:hover, .nav-link.active {
         border-color: #D4AF37;
         transform: translateY(-2px);
-        background-color: rgba(212, 175, 55, 0.1);
     }
 
     .navbar-toggler {
-        border: 2px solid #D4AF37 !important;
-        padding: 4px 8px;
+        border-color: #D4AF37 !important;
     }
 
     .navbar-toggler-icon {
-        background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 30 30' xmlns='http://www.w3.org/2000/svg'%3e%3cpath stroke='rgba(212, 175, 55, 1)' stroke-width='2' stroke-linecap='round' stroke-miterlimit='10' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e") !important;
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='%23D4AF37' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e") !important;
     }
 
     .dropdown-menu {
         background-color: #241409;
         border: 2px solid #D4AF37;
-        border-radius: 0;
-        margin-top: 8px;
-        box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.5);
-        font-family: 'Press Start 2P', cursive;
-        font-size: 10px;
     }
 
     .dropdown-item {
         color: #D4AF37 !important;
+        font-family: 'Press Start 2P', cursive;
+        font-size: 0.8em;
         padding: 10px 20px;
         transition: all 0.3s ease;
     }
 
     .dropdown-item:hover {
-        background-color: rgba(212, 175, 55, 0.1);
-        transform: translateX(4px);
+        background-color: #D4AF37;
+        color: #241409 !important;
     }
 
-    .dropdown-divider {
-        border-top: 2px solid #D4AF37;
-        margin: 0.5rem 0;
+    .navbar-nav .dropdown-menu {
+        position: absolute;
     }
 
-    /* Active link style */
-    .nav-link.active {
-        background-color: rgba(212, 175, 55, 0.2);
-        border-color: #D4AF37;
-    }
-
-    /* Search icon alignment */
-    .bi-search {
-        font-size: 14px;
-        margin-right: 8px;
+    @media (max-width: 991px) {
+        .navbar-nav .dropdown-menu {
+            position: static;
+        }
     }
 </style>
 
 <nav class="navbar navbar-expand-lg">
     <div class="container-fluid">
-        <a class="navbar-brand" href="/Spywalker/index.php">Spywalker</a>
+        <a class="navbar-brand" href="<?php echo get_url('/index.php'); ?>">Spywalker</a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
         </button>
@@ -107,80 +117,74 @@ $stats_path = $role === 'admin' ? '/Spywalker/admin/manage_stats.php' : '/Spywal
             <ul class="navbar-nav me-auto">
                 <?php if (isset($_SESSION['user_id'])): ?>
                     <li class="nav-item">
-                        <a class="nav-link <?php echo $current_page == $dashboard_path ? 'active' : ''; ?>" href="<?php echo $dashboard_path; ?>">
-                            <?php echo $current_page == $dashboard_path ? '[ DASHBOARD ]' : 'Dashboard'; ?>
+                        <a class="nav-link <?php echo $current_page == '/dashboard.php' ? 'active' : ''; ?>" href="<?php echo $dashboard_path; ?>">
+                            <i class="bi bi-speedometer2"></i> <?php echo $current_page == 'dashboard.php' ? '[ DASHBOARD ]' : 'Dashboard'; ?>
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link <?php echo $current_page == $schedule_path ? 'active' : ''; ?>" href="<?php echo $schedule_path; ?>">
-                            <?php echo $current_page == $schedule_path ? '[ SCHEDULE ]' : 'Schedule'; ?>
+                        <a class="nav-link <?php echo $current_page == '/team_schedule.php' ? 'active' : ''; ?>" href="<?php echo $schedule_path; ?>">
+                            <i class="bi bi-calendar"></i> <?php echo $current_page == 'team_schedule.php' ? '[ SCHEDULE ]' : 'Schedule'; ?>
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link <?php echo $current_page == '/Spywalker/messages.php' ? 'active' : ''; ?>" href="/Spywalker/messages.php">
-                            <?php echo $current_page == '/Spywalker/messages.php' ? '[ MESSAGES ]' : 'Messages'; ?>
+                        <a class="nav-link <?php echo $current_page == '/messages.php' ? 'active' : ''; ?>" href="<?php echo get_url('/messages.php'); ?>">
+                            <i class="bi bi-chat"></i> <?php echo $current_page == 'messages.php' ? '[ MESSAGES ]' : 'Messages'; ?>
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link <?php echo $current_page == $stats_path ? 'active' : ''; ?>" href="<?php echo $stats_path; ?>">
-                            <?php echo $current_page == $stats_path ? '[ STATS ]' : 'Stats'; ?>
+                        <a class="nav-link <?php echo ($current_page == '/team_stats.php' || $current_page == 'admin/manage_stats.php' || $current_page == 'player_stats.php') ? 'active' : ''; ?>" href="<?php echo $stats_path; ?>">
+                            <i class="bi bi-graph-up"></i> <?php echo ($current_page == 'team_stats.php' || $current_page == 'admin/manage_stats.php' || $current_page == 'player_stats.php') ? '[ STATS ]' : 'Stats'; ?>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo $current_page == '/leaderboards.php' ? 'active' : ''; ?>" href="<?php echo get_url('/leaderboards.php'); ?>">
+                            <i class="bi bi-trophy"></i> <?php echo $current_page == 'leaderboards.php' ? '[ FANTASY LEAGUE ]' : 'Fantasy League'; ?>
                         </a>
                     </li>
                     <?php if ($role === 'admin'): ?>
                     <li class="nav-item">
-                        <a class="nav-link <?php echo $current_page == '/Spywalker/admin/manage_roster.php' ? 'active' : ''; ?>" href="/Spywalker/admin/manage_roster.php">
-                            <?php echo $current_page == '/Spywalker/admin/manage_roster.php' ? '[ MANAGE ROSTER ]' : 'Manage Roster'; ?>
+                        <a class="nav-link <?php echo $current_page == '/manage_roster.php' ? 'active' : ''; ?>" href="<?php echo get_url('/admin/manage_roster.php'); ?>">
+                            <i class="bi bi-people"></i> <?php echo $current_page == 'manage_roster.php' ? '[ MANAGE ROSTER ]' : 'Manage Roster'; ?>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo $current_page == '/manage_teams.php' ? 'active' : ''; ?>" href="<?php echo get_url('/admin/manage_teams.php'); ?>">
+                            <i class="bi bi-people"></i> <?php echo $current_page == 'manage_teams.php' ? '[ MANAGE TEAMS ]' : 'Manage Teams'; ?>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo $current_page == '/manage_matches.php' ? 'active' : ''; ?>" href="<?php echo get_url('/admin/manage_matches.php'); ?>">
+                            <i class="bi bi-calendar"></i> <?php echo $current_page == 'manage_matches.php' ? '[ MANAGE MATCHES ]' : 'Manage Matches'; ?>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo $current_page == '/manage_users.php' ? 'active' : ''; ?>" href="<?php echo get_url('/admin/manage_users.php'); ?>">
+                            <i class="bi bi-people"></i> <?php echo $current_page == 'manage_users.php' ? '[ MANAGE USERS ]' : 'Manage Users'; ?>
                         </a>
                     </li>
                     <?php endif; ?>
-                    <?php if ($role === 'coach'): ?>
-                    <li class="nav-item">
-                        <a class="nav-link <?php echo $current_page == '/Spywalker/coach/manage_roster.php' ? 'active' : ''; ?>" href="/Spywalker/coach/manage_roster.php">
-                            <?php echo $current_page == '/Spywalker/coach/manage_roster.php' ? '[ MANAGE ROSTER ]' : 'Manage Roster'; ?>
-                        </a>
-                    </li>
-                    <?php endif; ?>
-                    <?php if ($role === 'admin'): ?>
-                    <li class="nav-item">
-                        <a class="nav-link <?php echo $current_page == '/Spywalker/admin/manage_teams.php' ? 'active' : ''; ?>" href="/Spywalker/admin/manage_teams.php">
-                            <?php echo $current_page == '/Spywalker/admin/manage_teams.php' ? '[ MANAGE TEAMS ]' : 'Manage Teams'; ?>
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?php echo $current_page == '/Spywalker/admin/manage_matches.php' ? 'active' : ''; ?>" href="/Spywalker/admin/manage_matches.php">
-                            <?php echo $current_page == '/Spywalker/admin/manage_matches.php' ? '[ MANAGE MATCHES ]' : 'Manage Matches'; ?>
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?php echo $current_page == '/Spywalker/admin/manage_users.php' ? 'active' : ''; ?>" href="/Spywalker/admin/manage_users.php">
-                            <?php echo $current_page == '/Spywalker/admin/manage_users.php' ? '[ MANAGE USERS ]' : 'Manage Users'; ?>
-                        </a>
-                    </li>
-                    <?php endif; ?>
-                    <li class="nav-item">
-                        <a class="nav-link <?php echo $current_page == '/Spywalker/leaderboards.php' ? 'active' : ''; ?>" href="/Spywalker/leaderboards.php">
-                            <?php echo $current_page == '/Spywalker/leaderboards.php' ? '[ FANTASY LEAGUE ]' : 'Fantasy League'; ?>
-                        </a>
-                    </li>
                 <?php endif; ?>
             </ul>
-
             <ul class="navbar-nav ms-auto">
                 <?php if (isset($_SESSION['user_id'])): ?>
                     <li class="nav-item me-3">
-                        <a class="nav-link <?php echo $current_page == '/Spywalker/search_users.php' ? 'active' : ''; ?>" href="/Spywalker/search_users.php">
-                            <i class="bi bi-search"></i> <?php echo $current_page == '/Spywalker/search_users.php' ? '[ SEARCH ]' : 'Search'; ?>
+                        <a class="nav-link <?php echo $current_page == 'search_users.php' ? 'active' : ''; ?>" href="<?php echo get_url('/search_users.php'); ?>">
+                            <i class="bi bi-search"></i> <?php echo $current_page == 'search_users.php' ? '[ SEARCH ]' : 'Search'; ?>
                         </a>
                     </li>
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <?php echo isset($_SESSION['first_name']) ? htmlspecialchars(strtoupper($_SESSION['first_name'])) : 'ACCOUNT'; ?>
+                    <li class="nav-item me-3">
+                        <a class="nav-link <?php echo $current_page == 'edit_profile.php' ? 'active' : ''; ?>" href="<?php echo get_url('/edit_profile.php'); ?>">
+                            <i class="bi bi-person-circle"></i> <?php echo $current_page == 'edit_profile.php' ? '[ EDIT PROFILE ]' : 'Edit Profile'; ?>
                         </a>
-                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                            <li><a class="dropdown-item" href="/Spywalker/edit_profile.php">Edit Profile</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="/Spywalker/logout.php">Logout</a></li>
-                        </ul>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="<?php echo get_url('/logout.php'); ?>">
+                            <i class="bi bi-box-arrow-right"></i> Logout
+                        </a>
+                    </li>
+                <?php else: ?>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo $current_page == 'login.php' ? 'active' : ''; ?>" href="<?php echo get_url('/login.php'); ?>">Login</a>
                     </li>
                 <?php endif; ?>
             </ul>
@@ -192,7 +196,11 @@ $stats_path = $role === 'admin' ? '/Spywalker/admin/manage_stats.php' : '/Spywal
 document.addEventListener('DOMContentLoaded', function() {
     var dropdowns = document.querySelectorAll('.dropdown-toggle');
     dropdowns.forEach(function(dropdown) {
-        new bootstrap.Dropdown(dropdown);
+        dropdown.addEventListener('click', function(e) {
+            e.preventDefault();
+            var menu = this.nextElementSibling;
+            menu.classList.toggle('show');
+        });
     });
 });
 </script>

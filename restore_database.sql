@@ -10,6 +10,7 @@ DROP TABLE IF EXISTS coach_profiles;
 DROP TABLE IF EXISTS positions;
 DROP TABLE IF EXISTS sports;
 DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS messages;
 
 -- Create users table
 CREATE TABLE users (
@@ -73,6 +74,19 @@ CREATE TABLE team_members (
     FOREIGN KEY (team_id) REFERENCES teams(id),
     FOREIGN KEY (user_id) REFERENCES users(id),
     UNIQUE KEY unique_team_member (team_id, user_id)
+);
+
+-- Create messages table
+CREATE TABLE messages (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    sender_id INT NOT NULL,
+    receiver_id INT NOT NULL,
+    message TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (sender_id) REFERENCES users(id),
+    FOREIGN KEY (receiver_id) REFERENCES users(id)
 );
 
 -- Insert default sport

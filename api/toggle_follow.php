@@ -24,53 +24,70 @@ if (!$target_id || !$role) {
     exit();
 }
 
-// Verify the user exists and is actually an athlete or coach
-$check_query = "SELECT id FROM users WHERE id = ? AND role = ? AND role IN ('athlete', 'coach')";
-$check_stmt = $conn->prepare($check_query);
-$check_stmt->bind_param("is", $target_id, $role);
-$check_stmt->execute();
-$result = $check_stmt->get_result();
-
-if ($result->num_rows === 0) {
-    http_response_code(404);
-    echo json_encode(['success' => false, 'message' => 'User not found or invalid role']);
-    exit();
-}
-
 try {
-    // Check if already following
+    // Start transaction
+    $conn->beginTransaction();
+    
+    // Verify the user exists and is actually an athlete or coach
+    $check_query = "SELECT id FROM users WHERE id = ? AND role = ? AND role IN ('athlete', 'coach') FOR UPDATE";
+    $check_stmt = $conn->prepare($check_query);
+    $check_stmt->bindValue(1, $target_id, PDO::PARAM_INT);
+    $check_stmt->bindValue(2, $role, PDO::PARAM_STR);
+    $check_stmt->execute();
+    
+    if ($check_stmt->rowCount() === 0) {
+        $conn->rollBack();
+        http_response_code(404);
+        echo json_encode(['success' => false, 'message' => 'User not found or invalid role']);
+        exit();
+    }
+
+    // Check if already following with row locking
     $table_name = $role === 'athlete' ? 'fan_followed_athletes' : 'fan_followed_coaches';
     $id_column = $role === 'athlete' ? 'athlete_id' : 'coach_id';
     
-    $check_follow = "SELECT id FROM $table_name WHERE fan_id = ? AND $id_column = ?";
+    $check_follow = "SELECT id FROM $table_name WHERE fan_id = ? AND $id_column = ? FOR UPDATE";
     $check_stmt = $conn->prepare($check_follow);
-    $check_stmt->bind_param("ii", $fan_id, $target_id);
+    $check_stmt->bindValue(1, $fan_id, PDO::PARAM_INT);
+    $check_stmt->bindValue(2, $target_id, PDO::PARAM_INT);
     $check_stmt->execute();
-    $follow_result = $check_stmt->get_result();
     
-    if ($follow_result->num_rows > 0) {
+    if ($check_stmt->rowCount() > 0) {
         // Unfollow
         $delete_query = "DELETE FROM $table_name WHERE fan_id = ? AND $id_column = ?";
         $delete_stmt = $conn->prepare($delete_query);
-        $delete_stmt->bind_param("ii", $fan_id, $target_id);
+        $delete_stmt->bindValue(1, $fan_id, PDO::PARAM_INT);
+        $delete_stmt->bindValue(2, $target_id, PDO::PARAM_INT);
         $delete_stmt->execute();
         $is_following = false;
     } else {
-        // Follow
-        $insert_query = "INSERT INTO $table_name (fan_id, $id_column) VALUES (?, ?)";
+        // Follow - use INSERT IGNORE to handle potential duplicates
+        $insert_query = "INSERT IGNORE INTO $table_name (fan_id, $id_column) VALUES (?, ?)";
         $insert_stmt = $conn->prepare($insert_query);
-        $insert_stmt->bind_param("ii", $fan_id, $target_id);
-        $insert_stmt->execute();
+        $insert_stmt->bindValue(1, $fan_id, PDO::PARAM_INT);
+        $insert_stmt->bindValue(2, $target_id, PDO::PARAM_INT);
+        $success = $insert_stmt->execute();
+        
+        if (!$success || $insert_stmt->rowCount() === 0) {
+            // If insert failed or no rows were inserted, it might be a duplicate
+            $conn->rollBack();
+            http_response_code(409);
+            echo json_encode(['success' => false, 'message' => 'Already following this user']);
+            exit();
+        }
         $is_following = true;
     }
     
     // Get updated follower count
     $count_query = "SELECT COUNT(*) as count FROM $table_name WHERE $id_column = ?";
     $count_stmt = $conn->prepare($count_query);
-    $count_stmt->bind_param("i", $target_id);
+    $count_stmt->bindValue(1, $target_id, PDO::PARAM_INT);
     $count_stmt->execute();
-    $count_result = $count_stmt->get_result()->fetch_assoc();
+    $count_result = $count_stmt->fetch(PDO::FETCH_ASSOC);
     $new_count = $count_result['count'];
+    
+    // Commit transaction
+    $conn->commit();
     
     echo json_encode([
         'success' => true,
@@ -78,8 +95,19 @@ try {
         'new_count' => $new_count
     ]);
     
-} catch (Exception $e) {
+} catch (PDOException $e) {
+    if ($conn->inTransaction()) {
+        $conn->rollBack();
+    }
+    error_log("Follow error: " . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Database error']);
+    echo json_encode(['success' => false, 'message' => 'Database error occurred']);
+} catch (Exception $e) {
+    if ($conn->inTransaction()) {
+        $conn->rollBack();
+    }
+    error_log("Follow error: " . $e->getMessage());
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'An error occurred']);
 }
 ?>
